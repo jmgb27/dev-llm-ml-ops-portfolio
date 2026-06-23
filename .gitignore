@@ -1,0 +1,5 @@
+# Local env overrides
+.env
+
+# Large model weights (download separately)
+models/*.gguf

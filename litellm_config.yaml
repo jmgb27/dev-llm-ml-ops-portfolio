@@ -1,0 +1,6 @@
+model_list:
+  - model_name: llama3
+    litellm_params:
+      model: openai/llama3
+      api_base: http://llama-worker-01:8080/v1
+      api_key: sk-1234
