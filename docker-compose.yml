@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   litellm-gateway:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm-gateway
@@ -6,13 +18,19 @@ services:
       - "${LITELLM_PORT:-4000}:4000"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      LITELLM_GLOBAL_MAX_PARALLEL_REQUEST_RETRIES: ${LITELLM_GLOBAL_MAX_PARALLEL_REQUEST_RETRIES:-10}
+      LITELLM_GLOBAL_MAX_PARALLEL_REQUEST_RETRY_TIMEOUT: ${LITELLM_GLOBAL_MAX_PARALLEL_REQUEST_RETRY_TIMEOUT:-120}
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
     command:
       - --config
       - /app/config.yaml
-      - --detailed_debug
     depends_on:
+      redis:
+        condition: service_healthy
       llama-worker-01:
         condition: service_healthy
     restart: unless-stopped
