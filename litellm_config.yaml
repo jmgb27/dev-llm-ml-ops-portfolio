@@ -3,4 +3,7 @@ model_list:
     litellm_params:
       model: openai/llama3
       api_base: http://llama-worker-01:8080/v1
-      api_key: sk-1234
+      api_key: sk-dummy-upstream
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
