@@ -55,6 +55,21 @@ Because this cluster shares physical hardware with other homelab services (e.g.,
 
 ---
 
+## 🛑 Enterprise Readiness Matrix & Production Gaps
+
+While this architecture leverages enterprise-grade deployment, container orchestration, and networking paradigms, certain compromises were explicitly accepted due to physical hardware constraints and resource limits.
+
+| Component / Layer          | What's Implemented (Enterprise Ready ✅)                                                                                         | Left Out / Production Gaps (To Be Addressed ⚠️)                                                                                                            |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Orchestration & GitOps** | Full Infrastructure-as-Code pipeline (Terraform/Ansible) with strict GitOps declarative reconciliation via ArgoCD.               | **No Distributed Cluster Storage:** Uses ephemeral pod paths and local paths rather than an enterprise SAN or Ceph cluster.                                |
+| **Networking & Routing**   | Layer 7 traffic load balancing via Istio Ambient Mesh Waypoint Proxies utilizing advanced `least_request` token routing metrics. | **Public Single Domain Ingress:** Lacks globally distributed Multi-Region DNS failover across multiple distinct data centers.                              |
+| **API Edge Security**      | Outbound reverse Cloudflare Tunnels (Zero open firewall ports) coupled with FinOps token limits and L7 Rate Limiting.            | **No Enterprise Identity Provider:** Auth relies on custom Virtual Keys rather than integration with Okta, Active Directory, or an OAuth SSO.              |
+| **Secrets Management**     | Declarative manifest files pushed automatically to cluster namespaces via the ArgoCD engine loops.                               | **Hardcoded Plaintext Secrets:** Secrets are committed directly to the Git manifests. A true enterprise needs ExternalSecrets with Vault/AWS SM.           |
+| **AI Data Governance**     | Dynamic Redis caching layer prevents redundant internal network requests and caches responses locally.                           | **No LLM Conversation Logging:** No central logging database (like PostgreSQL/ClickHouse) to archive user prompt logs or run PII masking audits.           |
+| **AI Observability**       | Prometheus scraping of inference throughput metrics (tokens/sec, context length, engine memory usage) and dashboarding.          | **No LLM Tracing / Evaluation:** Lacks runtime tracing (e.g., Langfuse or OpenInference) to visualize latency steps or track semantic hallucination rates. |
+
+---
+
 ## 📂 Repository Structure
 
 ```text
@@ -87,7 +102,9 @@ Because this cluster shares physical hardware with other homelab services (e.g.,
 │       ├── prometheus.yaml       # Scrapes /metrics from LiteLLM and nodes
 │       └── grafana.yaml          # Dashboards for token/sec, queue length, and latency
 └── README.md
+
 ```
+
 ---
 
 ## 🚀 GitOps Deployment Guide
@@ -167,4 +184,4 @@ To demonstrate the resilience of this architecture, the following chaos tests ha
 
 ---
 
-I built this project to demonstrate end-to-end MLOps and DevOps capabilities, spanning from hypervisor provisioning to API gateway queuing and GitOps orchestration. If you are interested in DevOps, Site Reliability, or MLOps Engineering roles, I'd love to chat!
+I built this project to demonstrate end-to-end MLOps and DevOps capabilities, spanning from hypervisor provisioning to API gateway queuing and GitOps orchestration.
