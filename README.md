@@ -92,9 +92,11 @@ While this architecture leverages enterprise-grade deployment, container orchest
 │   └── workflows/
 │       └── ci.yaml               # CI: Builds inference/gateway Docker images & updates manifests
 ├── terraform/
-│   ├── main.tf                   # Provisions K3s VMs on Proxmox via BPG Provider
+│   ├── main.tf                   # Provisions VMs on Proxmox via BPG Provider
 │   ├── variables.tf              # VM resource sizing and network IP mapping
-│   └── outputs.tf                # Generates dynamic Ansible inventory
+│   └── outputs.tf                # Generates Ansible inventory output
+├── scripts/
+│   └── create-proxmox-template.sh # One-time Ubuntu 24.04 cloud-init template (see scripts/README.md)
 ├── ansible/
 │   ├── inventory.ini             # Dynamic IPs mapped from Terraform outputs
 │   ├── bootstrap-k3s.yml         # Installs K3s and configures cluster
@@ -126,10 +128,22 @@ While this architecture leverages enterprise-grade deployment, container orchest
 
 ### Prerequisites
 
-- Proxmox VE installed with a configured Ubuntu/Debian Cloud-Init image template.
+- Proxmox VE cluster with API access (token or user credentials).
 - An active Cloudflare Account with an authorized domain attached to Cloudflare Zero Trust.
 - SSH access configured between your local machine and the Proxmox hosts.
 - Terraform and Ansible installed on your local control machine.
+
+### Step 0: Create the Proxmox template (one time)
+
+Terraform clones from a golden image — create it once with the bootstrap script. Full details: [`scripts/README.md`](scripts/README.md).
+
+```bash
+scp scripts/create-proxmox-template.sh root@<proxmox-host>:/root/
+ssh root@<proxmox-host>
+bash /root/create-proxmox-template.sh
+```
+
+Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`, set `template_vm_id = 9000`, your API token, SSH public key, and VM IP.
 
 ### Step 1: Infrastructure Provisioning & Auto-Labeling
 

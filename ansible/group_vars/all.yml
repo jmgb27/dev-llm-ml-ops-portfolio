@@ -1,0 +1,4 @@
+# Pin a version for reproducibility, e.g. v1.32.2+k3s1 — leave empty for latest stable.
+k3s_version: ""
+
+k3s_server_url: "https://{{ hostvars[groups['k3s_master'][0]].ansible_host }}:6443"

@@ -1,0 +1,120 @@
+---
+- name: Prepare all cluster nodes
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      register: cloud_init_status
+      changed_when: false
+      failed_when: cloud_init_status.rc not in [0, 2]
+
+    - name: Install base packages
+      apt:
+        name:
+          - curl
+          - ca-certificates
+          - qemu-guest-agent
+          - open-iscsi
+        state: present
+        update_cache: true
+
+    - name: Enable and start qemu-guest-agent
+      # Requires Proxmox `agent=1` on the VM (terraform main.tf agent.enabled = true).
+      systemd:
+        name: qemu-guest-agent
+        enabled: true
+        state: started
+
+    - name: Disable swap (required by Kubernetes)
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+      changed_when: false
+
+    - name: Remove swap from fstab
+      mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      loop: [swap]
+      ignore_errors: true
+
+    - name: Load kernel modules for Kubernetes networking
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: Persist kernel modules
+      copy:
+        dest: /etc/modules-load.d/k3s.conf
+        content: |
+          br_netfilter
+          overlay
+        mode: "0644"
+
+    - name: Set sysctl for Kubernetes
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-k3s.conf
+        reload: true
+      loop:
+        - { key: net.bridge.bridge-nf-call-iptables, value: "1" }
+        - { key: net.ipv4.ip_forward, value: "1" }
+
+- name: Install K3s control plane
+  hosts: k3s_master
+  become: true
+  tasks:
+    - name: Install K3s server
+      shell: |
+        set -euo pipefail
+        curl -sfL https://get.k3s.io | sh -s - server \
+          --write-kubeconfig-mode 644 \
+          --tls-san {{ ansible_host }}
+      environment: "{{ {'INSTALL_K3S_VERSION': k3s_version} if k3s_version | length > 0 else {} }}"
+      args:
+        executable: /bin/bash
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for K3s API
+      wait_for:
+        port: 6443
+        host: "{{ ansible_host }}"
+        timeout: 300
+
+- name: Join worker nodes to the cluster
+  hosts: k3s_workers
+  become: true
+  tasks:
+    - name: Read cluster join token from master
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token
+      delegate_to: "{{ groups['k3s_master'][0] }}"
+      run_once: true
+
+    - name: Install K3s agent
+      shell: |
+        set -euo pipefail
+        curl -sfL https://get.k3s.io | \
+          K3S_URL={{ k3s_server_url }} \
+          K3S_TOKEN={{ k3s_token.content | b64decode | trim }} \
+          sh -s - agent
+      environment: "{{ {'INSTALL_K3S_VERSION': k3s_version} if k3s_version | length > 0 else {} }}"
+      args:
+        executable: /bin/bash
+        creates: /usr/local/bin/k3s-agent
+
+    - name: Wait for node to register with the API
+      command: kubectl get node {{ inventory_hostname }}
+      delegate_to: "{{ groups['k3s_master'][0] }}"
+      become: true
+      register: node_check
+      until: node_check.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false

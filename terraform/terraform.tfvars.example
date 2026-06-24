@@ -1,0 +1,48 @@
+# Copy to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+
+proxmox_endpoint     = "https://192.168.1.10:8006/"
+proxmox_api_token    = "terraform@pam!provisioning=REPLACE_WITH_SECRET"
+proxmox_insecure_tls = true
+
+template_vm_id       = 9000
+template_node_name   = "pve"
+datastore_id         = "rpool"
+network_bridge  = "vmbr0"
+network_gateway = "192.168.1.1"
+
+cloud_init_user = "ubuntu"
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAA... your-key@laptop",
+]
+
+vms = {
+  "k3s-master" = {
+    node_name  = "pve"
+    role       = "master"
+    cores      = 4
+    memory_mb  = 8192
+    disk_gb    = 40
+    ip_address = "192.168.1.21"
+    tags       = ["control-plane"]
+  }
+  "k3s-worker-01" = {
+    node_name  = "pve2"
+    role       = "worker"
+    cores      = 4
+    memory_mb  = 16384
+    disk_gb    = 60
+    ip_address = "192.168.1.22"
+    tags       = ["worker", "avx2"]
+  }
+  "k3s-worker-02" = {
+    node_name  = "pve4"
+    role       = "worker"
+    cores      = 4
+    memory_mb  = 16384
+    disk_gb    = 60
+    ip_address = "192.168.1.23"
+    tags       = ["worker", "avx2"]
+  }
+}

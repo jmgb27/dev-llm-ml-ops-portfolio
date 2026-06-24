@@ -1,0 +1,34 @@
+---
+- name: Detect CPU features on each node
+  hosts: k3s_cluster
+  tasks:
+    - name: Read CPU flags
+      command: lscpu
+      register: lscpu_out
+      changed_when: false
+
+    - name: Set cpu-feature label value
+      set_fact:
+        cpu_feature: "{{ 'avx2' if ('avx2' in lscpu_out.stdout | lower) else 'base' }}"
+
+- name: Apply Kubernetes node labels
+  hosts: k3s_master
+  become: true
+  tasks:
+    - name: Label nodes with cpu-feature
+      command: >
+        kubectl label node {{ item }}
+        cpu-feature={{ hostvars[item].cpu_feature }}
+        --overwrite
+      loop: "{{ groups['k3s_cluster'] }}"
+      when: hostvars[item].cpu_feature is defined
+      changed_when: false
+
+    - name: Show labeled nodes
+      command: kubectl get nodes --show-labels
+      register: labeled_nodes
+      changed_when: false
+
+    - name: Display node labels
+      debug:
+        var: labeled_nodes.stdout_lines
