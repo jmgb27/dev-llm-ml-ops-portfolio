@@ -26,6 +26,21 @@ Traditional service meshes inject Envoy proxy "sidecars" into every application 
 3. **The External Queue:** LiteLLM backed by **Redis** holds incoming HTTP spikes and spoon-feeds them through the mesh to the worker nodes to prevent OOM (Out of Memory) crashes.
 4. **The Internal Queue:** The C++ `llama-server` engine utilizes **Continuous Batching** to process multiple prompts in parallel within the same memory context.
 
+### LiteLLM + Istio: Why Both?
+
+Both can load-balance HTTP traffic, but they operate at different layers and make decisions with different context. This project uses them as a **two-tier system**, not as duplicates.
+
+| | **LiteLLM** (AI gateway) | **Istio Ambient** (service mesh) |
+| :-- | :-- | :-- |
+| **Role** | Application policy & queueing | Network delivery & pod health |
+| **Balances by** | Model, tokens (RPM/TPM), API keys, spend caps | Pod health, connections, latency (`least_request`) |
+| **Queue** | Redis — holds bursts before they hit inference | Stateless — routes live connections to healthy endpoints |
+| **On node failure** | Keeps calling the `llama-cpp` Service; does not track individual pods | Detects dead pods and re-routes to surviving i5 workers over mTLS (`ztunnel`) |
+
+**Flow:** Client → LiteLLM (auth, rate limits, Redis queue) → `llama-cpp` Service → Istio Waypoint (pod-level routing) → llama.cpp on AVX2 workers.
+
+LiteLLM points at a single Kubernetes Service endpoint; Istio handles which replica receives each request and fails over when a worker node dies.
+
 ### 🔐 Multi-Layer Security & Cloudflare Tunnel Edge Integration
 
 Exposing local LLM compute nodes requires rigorous data plane and access controls to mitigate compute-hijacking and denial-of-service threats:
@@ -170,11 +185,11 @@ _From this point forward, the cluster state is strictly declarative. Any changes
 
 With `docker compose up`, Prometheus scrapes LiteLLM (`:4000/metrics`), llama.cpp (`:8080/metrics`), and Redis. Grafana is pre-provisioned with an **LLM API Gateway** dashboard:
 
-| Service     | URL                          |
-| :---------- | :--------------------------- |
-| Grafana     | `http://localhost:3000`      |
-| Prometheus  | `http://localhost:9090`      |
-| LiteLLM     | `http://localhost:4000`      |
+| Service    | URL                     |
+| :--------- | :---------------------- |
+| Grafana    | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
+| LiteLLM    | `http://localhost:4000` |
 
 Default Grafana login: `admin` / `admin` (override via `GRAFANA_ADMIN_PASSWORD` in `.env`).
 
