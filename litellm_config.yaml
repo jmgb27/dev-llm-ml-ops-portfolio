@@ -6,6 +6,9 @@ model_list:
       api_key: sk-dummy-upstream
       # Match llama.cpp --parallel slots; excess traffic queues in Redis
       max_parallel_requests: 4
+    # Perimeter rate limits — hard 429 when exceeded (see enforce_model_rate_limits)
+    rpm: 60
+    tpm: 80000
 
 litellm_settings:
   cache: true
@@ -15,12 +18,18 @@ litellm_settings:
     port: os.environ/REDIS_PORT
     password: os.environ/REDIS_PASSWORD
     ttl: 3600
+  callbacks:
+    - prometheus
+  service_callback:
+    - prometheus_system
 
 router_settings:
   routing_strategy: simple-shuffle
   redis_host: os.environ/REDIS_HOST
   redis_port: os.environ/REDIS_PORT
   redis_password: os.environ/REDIS_PASSWORD
+  optional_pre_call_checks:
+    - enforce_model_rate_limits
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

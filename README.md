@@ -166,6 +166,22 @@ _From this point forward, the cluster state is strictly declarative. Any changes
 
 ## 📊 Observability & Chaos Testing
 
+### Local Docker Compose Stack
+
+With `docker compose up`, Prometheus scrapes LiteLLM (`:4000/metrics`), llama.cpp (`:8080/metrics`), and Redis. Grafana is pre-provisioned with an **LLM API Gateway** dashboard:
+
+| Service     | URL                          |
+| :---------- | :--------------------------- |
+| Grafana     | `http://localhost:3000`      |
+| Prometheus  | `http://localhost:9090`      |
+| LiteLLM     | `http://localhost:4000`      |
+
+Default Grafana login: `admin` / `admin` (override via `GRAFANA_ADMIN_PASSWORD` in `.env`).
+
+Gateway rate limits are enforced in `litellm_config.yaml` (`rpm` / `tpm` with `enforce_model_rate_limits`). Exceeding limits returns `429 Too Many Requests` before traffic reaches the inference worker.
+
+### Production Cluster
+
 This infrastructure is designed to be resilient to heavy AI workloads. Access the **Grafana Dashboard** via `http://<xeon-node-ip>:3000` to monitor:
 
 - LLM Token Generation Speed (Tokens/sec)
