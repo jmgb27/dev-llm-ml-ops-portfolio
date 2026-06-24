@@ -1,0 +1,78 @@
+# Minimal single-worker inference smoke test.
+# Model must exist on the node at /var/lib/llm-models/
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llama-cpp
+  template:
+    metadata:
+      labels:
+        app: llama-cpp
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker-01
+        cpu-feature: avx2
+      containers:
+        - name: llama-cpp
+          image: ghcr.io/ggml-org/llama.cpp:server
+          args:
+            - -m
+            - /models/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+            - -c
+            - "4096"
+            - --host
+            - 0.0.0.0
+            - -t
+            - "4"
+            - -cb
+            - --parallel
+            - "4"
+            - --metrics
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "4"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+      volumes:
+        - name: models
+          hostPath:
+            path: /var/lib/llm-models
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+spec:
+  selector:
+    app: llama-cpp
+  ports:
+    - port: 8080
+      targetPort: 8080

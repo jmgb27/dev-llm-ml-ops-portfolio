@@ -1,6 +1,8 @@
 # Ansible — K3s cluster configuration
 
-Configures the VMs provisioned by Terraform: base OS hardening, K3s install, worker join, and hardware-aware node labels.
+Configures the VMs provisioned by Terraform: base OS hardening, K3s install, worker join, hardware-aware node labels, and the K3s-specific Istio CNI fix.
+
+Part of the full pipeline documented in the [root README](../README.md) and [k8s/README](../k8s/README.md).
 
 ## Prerequisites
 
@@ -9,11 +11,8 @@ Configures the VMs provisioned by Terraform: base OS hardening, K3s install, wor
 - Ansible on your control machine:
 
 ```bash
-# macOS
-brew install ansible
-
-# or pip
-pip install ansible
+brew install ansible    # macOS
+# or: pip install ansible
 ```
 
 ## Quick start
@@ -31,9 +30,17 @@ ansible-playbook bootstrap-k3s.yml
 ansible-playbook label-nodes.yml
 ```
 
-## Verify the cluster
+## Default cluster layout
 
-On the master:
+| Node | IP | `cpu-feature` label |
+|------|-----|---------------------|
+| `k3s-master` | `192.168.100.71` | `base` |
+| `k3s-worker-01` | `192.168.100.72` | `avx2` |
+| `k3s-worker-02` | `192.168.100.73` | `avx2` |
+
+IPs come from `terraform/terraform.tfvars` — regenerate inventory after changes.
+
+## Verify the cluster
 
 ```bash
 ssh ubuntu@192.168.100.71
@@ -41,27 +48,40 @@ sudo kubectl get nodes -o wide
 sudo kubectl get nodes --show-labels | grep cpu-feature
 ```
 
-Expected labels:
-
-| Node | Label |
-|------|-------|
-| `k3s-master` | `cpu-feature=base` |
-| `k3s-worker-01` | `cpu-feature=avx2` |
-| `k3s-worker-02` | `cpu-feature=avx2` |
-
-Copy kubeconfig to your laptop (optional):
+### Kubeconfig on your laptop
 
 ```bash
+mkdir -p ~/.kube
 scp ubuntu@192.168.100.71:/etc/rancher/k3s/k3s.yaml ~/.kube/config
-# Edit server IP in the file if needed (replace 127.0.0.1 with 192.168.100.71)
+sed -i '' 's/127.0.0.1/192.168.100.71/' ~/.kube/config
+kubectl get nodes
 ```
 
 ## Playbooks
 
-| Playbook | Purpose |
-|----------|---------|
-| `bootstrap-k3s.yml` | OS prep, qemu-guest-agent, K3s server + agents |
-| `label-nodes.yml` | `lscpu` AVX2 detection → `cpu-feature` Kubernetes labels |
+| Playbook | When to run | Purpose |
+|----------|-------------|---------|
+| `bootstrap-k3s.yml` | After Terraform apply | OS prep, qemu-guest-agent, K3s server + agents |
+| `label-nodes.yml` | After bootstrap | `lscpu` AVX2 detection → `cpu-feature` Kubernetes labels |
+| `fix-istio-k3s-cni.yml` | After Istio ambient install | Symlink `istio-cni` into K3s CNI path; restart ztunnel |
+
+### Istio on K3s
+
+After installing Istio with `--set values.global.platform=k3s`, always run:
+
+```bash
+ansible-playbook fix-istio-k3s-cni.yml
+```
+
+Without this, new pods (including `ztunnel`) fail with `failed to find plugin "istio-cni" in path [/var/lib/rancher/k3s/data/cni]`.
+
+## What comes next
+
+Ansible stops at a healthy K3s cluster. To deploy the LLM stack:
+
+1. Copy GGUF models to workers (`/var/lib/llm-models/`) — see [k8s/README.md](../k8s/README.md)
+2. Install Gateway API CRDs + Istio Ambient
+3. `kubectl apply -k k8s` from the repo root
 
 ## Configuration
 

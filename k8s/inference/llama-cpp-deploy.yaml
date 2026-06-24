@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+  labels:
+    app: llama-cpp
+    app.kubernetes.io/component: inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llama-cpp
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: llama-cpp
+        app.kubernetes.io/component: inference
+    spec:
+      nodeSelector:
+        cpu-feature: avx2
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: llama-cpp
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: llama-cpp
+          image: ghcr.io/ggml-org/llama.cpp:server
+          args:
+            - -m
+            - /models/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+            - -c
+            - "4096"
+            - --host
+            - 0.0.0.0
+            - -t
+            - "4"
+            - -cb
+            - --parallel
+            - "4"
+            - --metrics
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "3000m"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+      volumes:
+        - name: models
+          hostPath:
+            path: /var/lib/llm-models
+            type: Directory

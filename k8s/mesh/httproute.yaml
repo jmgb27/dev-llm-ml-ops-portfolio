@@ -1,0 +1,37 @@
+# L7 routing rules for inference traffic via the Istio Waypoint.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+  labels:
+    app.kubernetes.io/component: mesh
+spec:
+  parentRefs:
+    - group: ""
+      kind: Service
+      name: llama-cpp
+      port: 8080
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: llama-cpp
+          port: 8080
+          weight: 100
+---
+# Pod-level load balancing: prefer workers with fewer active requests.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+  labels:
+    app.kubernetes.io/component: mesh
+spec:
+  host: llama-cpp.llm-gateway.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_REQUEST

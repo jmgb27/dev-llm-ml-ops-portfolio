@@ -1,0 +1,45 @@
+# Waypoint proxy for L7 routing to llama-cpp. Runs on the control-plane (non-AVX2) node.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: waypoint-options
+  namespace: llm-gateway
+  labels:
+    app.kubernetes.io/component: mesh
+data:
+  deployment: |
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            cpu-feature: base
+            kubernetes.io/hostname: k3s-master
+          containers:
+            - name: istio-proxy
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "2"
+                  memory: 1Gi
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: llm-gateway
+  labels:
+    istio.io/waypoint-for: service
+    app.kubernetes.io/component: mesh
+spec:
+  gatewayClassName: istio-waypoint
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: waypoint-options
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE

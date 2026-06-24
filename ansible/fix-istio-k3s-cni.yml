@@ -1,0 +1,28 @@
+---
+# Run on the K3s master after: istioctl install -y --set profile=ambient --set values.global.platform=k3s
+# Fixes ztunnel sandbox errors: failed to find plugin "istio-cni" in path [/var/lib/rancher/k3s/data/cni]
+- name: Fix Istio CNI binary path for K3s
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Symlink istio-cni into K3s CNI plugin directory
+      file:
+        src: /var/lib/rancher/k3s/data/current/bin/istio-cni
+        dest: /var/lib/rancher/k3s/data/cni/istio-cni
+        state: link
+        force: true
+
+- name: Restart ztunnel pods if Istio is installed
+  hosts: k3s_master
+  become: true
+  tasks:
+    - name: Check for ztunnel daemonset
+      command: kubectl get daemonset ztunnel -n istio-system
+      register: ztunnel_ds
+      failed_when: false
+      changed_when: false
+
+    - name: Rollout restart ztunnel
+      command: kubectl rollout restart daemonset/ztunnel -n istio-system
+      when: ztunnel_ds.rc == 0
+      changed_when: true

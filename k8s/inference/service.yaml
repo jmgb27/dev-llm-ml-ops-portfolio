@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp
+  namespace: llm-gateway
+  labels:
+    app: llama-cpp
+    app.kubernetes.io/component: inference
+    # Route L7 traffic through the Istio Waypoint on the control-plane node.
+    istio.io/use-waypoint: waypoint
+spec:
+  selector:
+    app: llama-cpp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

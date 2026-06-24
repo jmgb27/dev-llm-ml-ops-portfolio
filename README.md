@@ -100,100 +100,192 @@ While this architecture leverages enterprise-grade deployment, container orchest
 ├── ansible/
 │   ├── inventory.ini             # Dynamic IPs mapped from Terraform outputs
 │   ├── bootstrap-k3s.yml         # Installs K3s and configures cluster
-│   └── label-nodes.yml           # Detects CPU features & applies K8s labels
+│   ├── label-nodes.yml           # Detects CPU features & applies K8s labels
+│   └── fix-istio-k3s-cni.yml     # K3s-specific Istio CNI symlink fix
 ├── k8s/
+│   ├── kustomization.yaml        # Root manifest bundle — kubectl apply -k k8s
+│   ├── README.md                 # Cluster deploy, Istio, dev testing (detailed)
+│   ├── base/                     # Namespace (Istio ambient) + ResourceQuota
 │   ├── argocd/
-│   │   └── application.yaml      # CD: ArgoCD "App-of-Apps" GitOps root configuration
+│   │   └── application.yaml      # Optional GitOps root app (apply once)
 │   ├── mesh/
-│   │   ├── waypoint.yaml         # Istio Waypoint Proxy (Gateway API) restricted to Xeon node
-│   │   └── httproute.yaml        # L7 routing rules for LLM traffic
+│   │   ├── waypoint.yaml         # Istio Waypoint on master (Gateway API)
+│   │   └── httproute.yaml        # L7 routing + LEAST_REQUEST to llama-cpp
 │   ├── gateway/
-│   │   ├── cloudflared-deploy.yaml # Cloudflare Tunnel Daemon high-availability deployment
-│   │   ├── litellm-config.yaml   # API Gateway routing, Token Authentication, & Redis queue configuration
-│   │   ├── litellm-deploy.yaml   # LiteLLM deployment (tied to Xeon node)
-│   │   └── redis-deploy.yaml     # Redis Semantic Cache & Stateful Queue
+│   │   ├── cloudflared-deploy.yaml
+│   │   ├── litellm-config.yaml
+│   │   ├── litellm-deploy.yaml
+│   │   └── redis-deploy.yaml
 │   ├── inference/
-│   │   ├── llama-cpp-deploy.yaml # Inference pods (Continuous batching args, tied to i5 nodes)
-│   │   └── service.yaml          # Internal ClusterIP for inference pods
-│   └── observability/
-│       ├── prometheus.yaml       # Scrapes /metrics from LiteLLM and nodes
-│       └── grafana.yaml          # Dashboards for token/sec, queue length, and latency
+│   │   ├── llama-cpp-deploy.yaml # 2 replicas on AVX2 workers
+│   │   └── service.yaml
+│   ├── observability/
+│   │   ├── prometheus.yaml
+│   │   └── grafana.yaml
+│   └── smoke-test/
+│       └── llama-cpp-worker.yaml # Single-worker validation (optional)
+├── docker-compose.yml            # Local dev stack (no cluster required)
+├── litellm_config.yaml           # LiteLLM config for Docker Compose
 └── README.md
 
 ```
 
 ---
 
-## 🚀 GitOps Deployment Guide
+## ✅ Current implementation status
 
-### Prerequisites
+What is **built and running** on the homelab cluster today:
 
-- Proxmox VE cluster with API access (token or user credentials).
-- An active Cloudflare Account with an authorized domain attached to Cloudflare Zero Trust.
-- SSH access configured between your local machine and the Proxmox hosts.
-- Terraform and Ansible installed on your local control machine.
+| Layer | Status | Notes |
+|-------|--------|-------|
+| Proxmox VMs (Terraform) | ✅ | 1 master + 2 workers on `192.168.100.0/24` |
+| K3s cluster (Ansible) | ✅ | v1.35.x, nodes labeled `cpu-feature=avx2\|base` |
+| LLM stack (`kubectl apply -k k8s`) | ✅ | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana |
+| Istio Ambient mesh | ✅ | ztunnel + Waypoint L7 routing to inference pods |
+| Docker Compose local dev | ✅ | Same stack for laptop testing without a cluster |
+| Cloudflare Tunnel | ⏳ | Manifests exist; disabled in `kustomization.yaml` until token is set |
+| ArgoCD GitOps | ⏳ | `k8s/argocd/application.yaml` ready; not required for manual deploy |
 
-### Step 0: Create the Proxmox template (one time)
+### Cluster topology (default IPs)
 
-Terraform clones from a golden image — create it once with the bootstrap script. Full details: [`scripts/README.md`](scripts/README.md).
+| Node | IP | Role | Key workloads |
+|------|-----|------|----------------|
+| `k3s-master` | `192.168.100.71` | control-plane | LiteLLM, Redis, Grafana, Prometheus, Istio Waypoint |
+| `k3s-worker-01` | `192.168.100.72` | inference | llama-cpp pod |
+| `k3s-worker-02` | `192.168.100.73` | inference | llama-cpp pod |
 
-```bash
-scp scripts/create-proxmox-template.sh root@<proxmox-host>:/root/
-ssh root@<proxmox-host>
-bash /root/create-proxmox-template.sh
-```
+GGUF models are stored on workers at `/var/lib/llm-models/` (hostPath volume).
 
-Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`, set `template_vm_id = 9000`, your API token, SSH public key, and VM IP.
+---
 
-### Step 1: Infrastructure Provisioning & Auto-Labeling
+## 🚀 Deployment guide (end-to-end)
 
-1. Use Terraform to provision your VMs on the Proxmox VE hypervisor securely:
+Full details for the Kubernetes layer: [`k8s/README.md`](k8s/README.md).
+
+### Step 0: Proxmox template
+
+See [`scripts/README.md`](scripts/README.md). Copy `terraform/terraform.tfvars.example` → `terraform.tfvars`.
+
+### Step 1: Terraform — provision VMs
 
 ```bash
 cd terraform
 terraform init
-terraform apply -auto-approve
+terraform apply
 
+# Refresh Ansible inventory
+terraform output -raw ansible_inventory_ini > ../ansible/inventory.ini
 ```
 
-2. Run the Ansible bootstrap playbook. This installs K3s, joins the workers to the master, and runs a hardware detection script (`lscpu | grep avx2`) to dynamically label the Kubernetes nodes:
+### Step 2: Ansible — K3s + node labels
 
 ```bash
 cd ../ansible
-ansible-playbook -i inventory.ini bootstrap-k3s.yml
-
+ansible k3s_cluster -m ping
+ansible-playbook bootstrap-k3s.yml
+ansible-playbook label-nodes.yml
 ```
 
-Verify the hardware labels were applied correctly via `kubectl`:
+Verify:
 
 ```bash
-kubectl get nodes --show-labels | grep cpu-feature
-# Expected Output:
-# k3s-worker-01 ... cpu-feature=avx2
-# k3s-worker-02 ... cpu-feature=avx2
-# k3s-master    ... cpu-feature=base
-
+ssh ubuntu@192.168.100.71 sudo kubectl get nodes --show-labels | grep cpu-feature
 ```
 
-### Step 2: Bootstrap ArgoCD (The GitOps Way)
-
-Unlike traditional pipelines, we do not use `kubectl apply` for application manifests from the CI server. Instead, we install ArgoCD on the Xeon master node and point it to this repository.
+### Step 3: Copy model to inference workers
 
 ```bash
-# Install ArgoCD into the cluster
+# From repo root
+for host in 192.168.100.72 192.168.100.73; do
+  ssh ubuntu@$host 'sudo mkdir -p /var/lib/llm-models && sudo chown ubuntu:ubuntu /var/lib/llm-models'
+  scp models/Llama-3.2-1B-Instruct-Q4_K_M.gguf ubuntu@$host:/var/lib/llm-models/
+done
+```
+
+### Step 4: Istio Ambient on K3s
+
+K3s uses non-standard CNI paths — install with the K3s platform profile, then run the CNI fix playbook.
+
+```bash
+# On the master (or with KUBECONFIG pointing at the cluster)
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.24.2 sh -
+cd istio-1.24.2
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+./bin/istioctl install -y --set profile=ambient --set values.global.platform=k3s
+
+# Gateway API CRDs (if not already installed)
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+
+# Symlink istio-cni into K3s plugin directory (all nodes)
+cd ../../ansible && ansible-playbook fix-istio-k3s-cni.yml
+```
+
+### Step 5: Deploy the LLM stack
+
+```bash
+# From repo root — edit secrets in k8s/gateway/ and k8s/observability/ first if needed
+kubectl apply -k k8s
+kubectl -n llm-gateway get pods -w
+```
+
+Cloudflare Tunnel is **commented out** in `k8s/kustomization.yaml` until you set a token in `gateway/cloudflared-secret.yaml`.
+
+### Step 6 (optional): ArgoCD GitOps
+
+```bash
 kubectl create namespace argocd
-kubectl apply -n argocd -f [https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml](https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml)
-
-# Apply the Root GitOps App
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl apply -f k8s/argocd/application.yaml
-
 ```
-
-_From this point forward, the cluster state is strictly declarative. Any changes pushed to the `k8s/` directory in GitHub will be automatically detected and synchronized by ArgoCD, including the Istio Ambient mesh components and the Cloudflare Tunnel configuration._
 
 ---
 
-## 📊 Observability & Chaos Testing
+## 🧪 Development & testing
+
+Two supported paths:
+
+| Environment | When to use | How to call the API |
+|-------------|-------------|---------------------|
+| **Docker Compose** | Fastest local iteration, no cluster | `docker compose up` → `http://localhost:4000` |
+| **K3s cluster** | Production-like path with Istio + scheduling | `kubectl port-forward` (see below) |
+
+Services in Kubernetes are **ClusterIP** — they are not exposed on the master node IP (`192.168.100.71:4000`) by default. Istio load-balances **between llama-cpp worker pods** inside the cluster; it is not the external API entry point. **LiteLLM** is what clients call.
+
+### One-time: kubeconfig on your laptop
+
+```bash
+mkdir -p ~/.kube
+scp ubuntu@192.168.100.71:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+sed -i '' 's/127.0.0.1/192.168.100.71/' ~/.kube/config   # macOS
+kubectl get nodes
+```
+
+### Dev API test (port-forward)
+
+```bash
+# Terminal 1 — keep running
+kubectl -n llm-gateway port-forward svc/litellm 4000:4000
+
+# Terminal 2
+curl -s http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-1234" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama3","messages":[{"role":"user","content":"Hello"}]}' | jq .
+```
+
+Grafana: `kubectl -n llm-gateway port-forward svc/grafana 3000:3000` → `http://localhost:3000` (default `admin` / `admin`).
+
+### Inspect running workloads
+
+```bash
+kubectl -n llm-gateway get pods -o wide          # which node each pod runs on
+kubectl -n llm-gateway get svc                   # internal ClusterIP services
+kubectl get pods -n istio-system                 # ztunnel, istio-cni, istiod
+```
+
+---
+
+## 📊 Observability & chaos testing
 
 ### Local Docker Compose Stack
 
@@ -211,11 +303,14 @@ Gateway rate limits are enforced in `litellm_config.yaml` (`rpm` / `tpm` with `e
 
 ### Production Cluster
 
-This infrastructure is designed to be resilient to heavy AI workloads. Access the **Grafana Dashboard** via `http://<xeon-node-ip>:3000` to monitor:
+Access Grafana and Prometheus via port-forward from a machine with kubeconfig (same pattern as LiteLLM):
 
-- LLM Token Generation Speed (Tokens/sec)
-- Istio Waypoint Proxy Request Routing & Latency
-- Redis Queue Length & Cache Hit Ratio
+```bash
+kubectl -n llm-gateway port-forward svc/grafana 3000:3000
+kubectl -n llm-gateway port-forward svc/prometheus 9090:9090
+```
+
+Monitor token generation speed, Redis metrics, and LiteLLM gateway stats in the pre-provisioned **LLM API Gateway** Grafana dashboard.
 
 ### Simulated Enterprise Failure Scenarios
 
