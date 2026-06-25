@@ -1,18 +1,18 @@
 ---
-# Deploy LiteLLM gateway stack on an existing K3s cluster.
+# Cluster prerequisites for the LLM gateway (models, Gateway API, Istio).
 #
 # Prerequisites:
 #   ansible-playbook bootstrap-k3s.yml
 #   ansible-playbook label-nodes.yml
 #   models/{{ llm_model_filename }} on the Ansible control machine
 #
-# Full stack:
+# Full bootstrap:
 #   ansible-playbook deploy-llm-stack.yml
+#   ansible-playbook deploy-argocd.yml    # or: ./scripts/cluster.sh argocd
 #
-# Tags: models, gateway-api, istio, stack, kubeconfig
+# Tags: models, gateway-api, istio, kubeconfig
 #
-# GitOps note: once ArgoCD is installed, it can own ongoing sync of k8s/;
-# this playbook remains the bootstrap path for Istio, models, and first apply.
+# App manifests (k8s/) are owned by ArgoCD after deploy-argocd.yml.
 
 - name: Validate local prerequisites
   hosts: localhost
@@ -36,16 +36,6 @@
         - not llm_skip_model_copy | bool
         - not local_model.stat.exists
 
-    - name: Check k8s manifests directory exists
-      ansible.builtin.stat:
-        path: "{{ llm_k8s_local_path }}/kustomization.yaml"
-      register: k8s_manifests
-
-    - name: Fail when k8s manifests are missing
-      ansible.builtin.fail:
-        msg: "k8s manifests not found at {{ llm_k8s_local_path }}"
-      when: not k8s_manifests.stat.exists
-
 - name: Stage GGUF models on inference workers
   hosts: k3s_workers
   tags: [models]
@@ -67,7 +57,7 @@
 
 - name: Install Gateway API CRDs
   hosts: k3s_master
-  tags: [gateway-api, istio, stack]
+  tags: [gateway-api, istio]
   tasks:
     - name: Apply Gateway API standard install manifest
       ansible.builtin.command:
@@ -83,7 +73,7 @@
 
 - name: Install Istio Ambient mesh for K3s
   hosts: k3s_master
-  tags: [istio, stack]
+  tags: [istio]
   tasks:
     - name: Check if Istio control plane is already installed
       ansible.builtin.command:
@@ -143,7 +133,7 @@
 
 - name: Wait for ztunnel after K3s CNI fix
   hosts: k3s_master
-  tags: [istio, stack]
+  tags: [istio]
   tasks:
     - name: Check for ztunnel daemonset
       ansible.builtin.command:
@@ -175,110 +165,9 @@
       when: ztunnel_ds.rc == 0
       changed_when: false
 
-- name: Deploy LLM gateway Kubernetes manifests
-  hosts: k3s_master
-  tags: [stack]
-  tasks:
-    - name: Ensure remote manifest directory
-      ansible.builtin.file:
-        path: "{{ llm_k8s_remote_dir }}"
-        state: directory
-        owner: ubuntu
-        group: ubuntu
-        mode: "0755"
-        recurse: true
-
-    - name: Sync k8s manifests to master
-      ansible.builtin.synchronize:
-        src: "{{ llm_k8s_local_path }}/"
-        dest: "{{ llm_k8s_remote_dir }}/"
-        delete: false
-        rsync_opts:
-          - "--exclude=.git"
-      delegate_to: localhost
-      become: false
-
-    - name: Apply LLM gateway stack
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - apply
-          - -k
-          - "{{ llm_k8s_remote_dir }}"
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: k8s_apply
-      changed_when: "'created' in k8s_apply.stdout or 'configured' in k8s_apply.stdout"
-
-- name: Wait for core workloads
-  hosts: k3s_master
-  tags: [stack]
-  tasks:
-    - name: Wait for namespace to exist
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - get
-          - namespace
-          - "{{ llm_gateway_namespace }}"
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: ns_check
-      until: ns_check.rc == 0
-      retries: 12
-      delay: 5
-      changed_when: false
-
-    - name: Wait for llama-cpp rollout
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - -n
-          - "{{ llm_gateway_namespace }}"
-          - rollout
-          - status
-          - deployment/llama-cpp
-          - --timeout=600s
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: false
-
-    - name: Wait for litellm rollout
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - -n
-          - "{{ llm_gateway_namespace }}"
-          - rollout
-          - status
-          - deployment/litellm
-          - --timeout=300s
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: false
-
-    - name: Show llm-gateway pods
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - -n
-          - "{{ llm_gateway_namespace }}"
-          - get
-          - pods
-          - -o
-          - wide
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: llm_pods
-      changed_when: false
-
-    - name: Display pod status
-      ansible.builtin.debug:
-        msg: "{{ llm_pods.stdout_lines }}"
-
 - name: Fetch kubeconfig for laptop development
   hosts: k3s_master
-  tags: [kubeconfig, stack]
+  tags: [kubeconfig]
   tasks:
     - name: Ensure local kubeconfig directory
       ansible.builtin.file:
@@ -307,4 +196,5 @@
         msg: >-
           Kubeconfig written to {{ llm_kubeconfig_local_dir }}/k3s.yaml —
           export KUBECONFIG={{ llm_kubeconfig_local_dir }}/k3s.yaml
-          or copy to ~/.kube/config
+          or copy to ~/.kube/config.
+          Next: ansible-playbook deploy-argocd.yml

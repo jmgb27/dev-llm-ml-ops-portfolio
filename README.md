@@ -140,11 +140,11 @@ What is **built and running** on the homelab cluster today:
 | ---------------------------------- | ------ | -------------------------------------------------------------------- |
 | Proxmox VMs (Terraform)            | ✅     | 1 master + 2 workers on `192.168.100.0/24`                           |
 | K3s cluster (Ansible)              | ✅     | v1.35.x, nodes labeled `cpu-feature=avx2\|base`                      |
-| LLM stack (`kubectl apply -k k8s`) | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana                    |
+| LLM stack (ArgoCD GitOps)          | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
 | Istio Ambient mesh                 | ✅     | ztunnel + Waypoint L7 routing to inference pods                      |
 | Docker Compose local dev           | ✅     | Same stack for laptop testing without a cluster                      |
 | Cloudflare Tunnel                  | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set |
-| ArgoCD GitOps                      | ⏳     | `k8s/argocd/application.yaml` ready; not required for manual deploy  |
+| ArgoCD GitOps                      | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`               |
 
 ### Cluster topology (default IPs)
 
@@ -177,7 +177,7 @@ terraform apply
 terraform output -raw ansible_inventory_ini > ../ansible/inventory.ini
 ```
 
-### Step 2: Ansible — K3s, labels, and LLM stack
+### Step 2: Ansible — K3s, labels, and cluster prerequisites
 
 ```bash
 cd ../ansible
@@ -189,15 +189,23 @@ ansible-playbook deploy-llm-stack.yml
 
 Or: `./scripts/cluster.sh deploy` from the repo root (requires `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` on your laptop).
 
+### Step 3: ArgoCD — sync the LLM gateway app
+
+```bash
+./scripts/cluster.sh argocd
+# or: cd ansible && ansible-playbook deploy-argocd.yml
+```
+
 Verify:
 
 ```bash
 export KUBECONFIG=ansible/kubeconfig/k3s.yaml
 kubectl get nodes --show-labels | grep cpu-feature
+kubectl -n argocd get application llm-gateway
 kubectl -n llm-gateway get pods
 ```
 
-### Step 3: Copy model to inference workers
+### Step 4: Copy model to inference workers
 
 Handled by `deploy-llm-stack.yml`. To copy manually:
 
@@ -209,7 +217,7 @@ for host in 192.168.100.72 192.168.100.73; do
 done
 ```
 
-### Step 4: Istio Ambient on K3s
+### Step 5: Istio Ambient on K3s
 
 Handled by `deploy-llm-stack.yml`. Manual install:
 
@@ -227,9 +235,9 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/downloa
 cd ../../ansible && ansible-playbook fix-istio-k3s-cni.yml
 ```
 
-### Step 5: Deploy the LLM stack
+### Step 6: Manual app deploy (optional)
 
-Handled by `deploy-llm-stack.yml`. Manual apply:
+ArgoCD is the standard app owner. For a one-off manual apply without ArgoCD:
 
 ```bash
 # From repo root — edit secrets in k8s/gateway/ and k8s/observability/ first if needed
@@ -239,13 +247,7 @@ kubectl -n llm-gateway get pods -w
 
 Cloudflare Tunnel is **commented out** in `k8s/kustomization.yaml` until you set a token in `gateway/cloudflared-secret.yaml`.
 
-### Step 6 (optional): ArgoCD GitOps
-
-```bash
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl apply -f k8s/argocd/application.yaml
-```
+**ArgoCD caveats:** `selfHeal: true` reverts manual edits to synced manifests — change secrets in Git. Use `./scripts/cluster.sh pause` / `resume` instead of scaling or re-applying by hand when ArgoCD is installed.
 
 ---
 

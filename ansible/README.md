@@ -29,11 +29,21 @@ ansible-playbook bootstrap-k3s.yml
 # 3. Label nodes (avx2 on workers, base on master)
 ansible-playbook label-nodes.yml
 
-# 4. Deploy LiteLLM stack (models, Istio, k8s manifests)
+# 4. Cluster prerequisites (models, Gateway API, Istio, CNI fix)
 ansible-playbook deploy-llm-stack.yml
+
+# 5. Install ArgoCD and sync llm-gateway from Git
+ansible-playbook deploy-argocd.yml
 ```
 
-`deploy-llm-stack.yml` copies the GGUF model to workers, installs Gateway API + Istio Ambient, runs the K3s Istio CNI fix, applies `k8s/`, waits for `litellm` + `llama-cpp`, and fetches kubeconfig to `ansible/kubeconfig/k3s.yaml`. ArgoCD can take over manifest sync later (see [What comes next](#what-comes-next)).
+`deploy-llm-stack.yml` copies the GGUF model to workers, installs Gateway API + Istio Ambient, runs the K3s Istio CNI fix, and fetches kubeconfig to `ansible/kubeconfig/k3s.yaml`. **`deploy-argocd.yml`** installs ArgoCD and applies `k8s/argocd/application.yaml` so ArgoCD owns ongoing sync of `k8s/`.
+
+From the repo root:
+
+```bash
+./scripts/cluster.sh deploy
+./scripts/cluster.sh argocd
+```
 
 ## Default cluster layout
 
@@ -68,7 +78,8 @@ kubectl get nodes
 |----------|-------------|---------|
 | `bootstrap-k3s.yml` | After Terraform apply | OS prep, qemu-guest-agent, K3s server + agents |
 | `label-nodes.yml` | After bootstrap | `lscpu` AVX2 detection → `cpu-feature` Kubernetes labels |
-| `deploy-llm-stack.yml` | After label-nodes | Models → Gateway API → Istio → CNI fix → `kubectl apply -k k8s` |
+| `deploy-llm-stack.yml` | After label-nodes | Models → Gateway API → Istio → CNI fix → kubeconfig |
+| `deploy-argocd.yml` | After deploy-llm-stack | Install ArgoCD → apply Application → wait for llm-gateway sync |
 | `fix-istio-k3s-cni.yml` | Included by deploy (or manual after Istio) | Symlink `istio-cni` into K3s CNI path; restart ztunnel |
 | `stop-k3s.yml` | Shut down cluster | Stop `k3s-agent` on workers, then `k3s` on master |
 | `start-k3s.yml` | Boot cluster | Start master, wait for API, start workers |
@@ -76,14 +87,16 @@ kubectl get nodes
 ### Cluster lifecycle
 
 ```bash
-./scripts/cluster.sh pause    # scale llm-gateway to 0 — cluster still up
-./scripts/cluster.sh resume   # kubectl apply -k k8s
-./scripts/cluster.sh stop     # ansible-playbook stop-k3s.yml
-./scripts/cluster.sh start    # ansible-playbook start-k3s.yml
+./scripts/cluster.sh deploy    # prerequisites only
+./scripts/cluster.sh argocd    # GitOps app sync
+./scripts/cluster.sh pause     # disable ArgoCD auto-sync, scale to 0
+./scripts/cluster.sh resume    # re-enable auto-sync (ArgoCD restores from Git)
+./scripts/cluster.sh stop      # ansible-playbook stop-k3s.yml
+./scripts/cluster.sh start     # ansible-playbook start-k3s.yml
 ./scripts/cluster.sh status
 ```
 
-**Pause** is the usual overnight option (fast, no Ansible). **Stop/start** powers down K3s systemd units on all VMs.
+**Pause** disables ArgoCD `automated` sync before scaling to 0 so `selfHeal` does not fight manual scale-down. **Resume** re-enables sync instead of `kubectl apply -k`.
 
 ### Istio on K3s
 
@@ -104,24 +117,26 @@ Without the CNI symlink, new pods (including `ztunnel`) fail with `failed to fin
 ```bash
 ansible-playbook deploy-llm-stack.yml --tags models      # only copy GGUF to workers
 ansible-playbook deploy-llm-stack.yml --tags istio       # Gateway API + Istio + CNI fix
-ansible-playbook deploy-llm-stack.yml --tags stack       # sync and apply k8s manifests
 ansible-playbook deploy-llm-stack.yml --tags kubeconfig  # fetch kubeconfig to ansible/kubeconfig/
+ansible-playbook deploy-argocd.yml                       # full ArgoCD install + app sync
 ```
 
 Set `llm_skip_model_copy: true` in `group_vars/all.yml` when models are already on workers.
 
-## What comes next
+## ArgoCD GitOps
 
-Ansible can deploy the full gateway stack with `deploy-llm-stack.yml`. For ongoing GitOps:
+ArgoCD is the **app owner** for everything under `k8s/` (kustomization). Ansible handles cluster prerequisites ArgoCD cannot install (models, Gateway API CRDs, Istio, K3s CNI fix).
 
-1. Install ArgoCD and apply `k8s/argocd/application.yaml` (manifest sync from Git)
-2. Keep using Ansible for cluster bootstrap, models, and Istio (or migrate Istio to GitOps later)
+1. Run `deploy-llm-stack.yml` first — `HTTPRoute`/`Gateway` need Gateway API + Istio present before the first sync.
+2. Run `deploy-argocd.yml` (or `./scripts/cluster.sh argocd`).
+3. Ensure `k8s/argocd/application.yaml` `repoURL` / `targetRevision` match your pushed Git remote (default: `master` on `jmgb27/devops_llmops_mlops_portfolio`). Private repos need ArgoCD repo credentials.
 
-Manual steps if not using `deploy-llm-stack.yml`:
+**Caveats:**
 
-1. Copy GGUF models to workers (`/var/lib/llm-models/`) — see [k8s/README.md](../k8s/README.md)
-2. Install Gateway API CRDs + Istio Ambient
-3. `kubectl apply -k k8s` from the repo root
+- `selfHeal: true` reverts manual edits to synced resources (including `litellm-secret.yaml` / `grafana-secret.yaml`) — change those in Git or move secrets out of the kustomization.
+- `k8s/argocd/application.yaml` is **not** in `k8s/kustomization.yaml` so ArgoCD does not manage itself.
+
+Manual bootstrap (without ArgoCD) is still possible with `kubectl apply -k k8s` after prerequisites, but pause/resume in `cluster.sh` expects ArgoCD.
 
 ## Configuration
 
@@ -134,6 +149,9 @@ k3s_version: ""   # pin e.g. v1.32.2+k3s1, or empty for latest
 llm_model_filename: Llama-3.2-1B-Instruct-Q4_K_M.gguf
 llm_skip_model_copy: false   # true when GGUF already on workers
 istio_version: "1.24.2"
+
+# deploy-argocd.yml
+argocd_version: "v2.14.2"
 ```
 
 ## Inventory

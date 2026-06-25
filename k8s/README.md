@@ -28,7 +28,7 @@ All Services are **ClusterIP** — not reachable on node IPs without port-forwar
 
 ```text
 k8s/
-├── kustomization.yaml          # Root — kubectl apply -k k8s
+├── kustomization.yaml          # Root — synced by ArgoCD (or kubectl apply -k k8s for manual bootstrap)
 ├── base/                       # Namespace (Istio ambient label) + ResourceQuota
 ├── inference/                  # llama.cpp on AVX2 workers
 ├── gateway/                    # Redis, LiteLLM, Cloudflare Tunnel
@@ -66,11 +66,12 @@ worker-01  worker-02             ← llama.cpp inference (-t 4, --parallel 4)
 1. **K3s cluster** — `bootstrap-k3s.yml` + `label-nodes.yml` ([ansible/README.md](../ansible/README.md)).
 2. **GGUF model** on the Ansible control machine at `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` (deploy playbook copies to workers), or set `llm_skip_model_copy: true` if already on workers at `/var/lib/llm-models/`.
 
-**Automated deploy** (models, Gateway API, Istio, CNI fix, `kubectl apply -k k8s`):
+**Automated deploy** (models, Gateway API, Istio, CNI fix, then ArgoCD sync):
 
 ```bash
-cd ansible && ansible-playbook deploy-llm-stack.yml
-# or from repo root: ./scripts/cluster.sh deploy
+./scripts/cluster.sh deploy
+./scripts/cluster.sh argocd
+# or: cd ansible && ansible-playbook deploy-llm-stack.yml && ansible-playbook deploy-argocd.yml
 ```
 
 Manual prerequisites below if not using the playbook:
@@ -101,21 +102,37 @@ The `fix-istio-k3s-cni.yml` playbook symlinks `istio-cni` into `/var/lib/rancher
 
 ## Deploy
 
+**Standard path:** ArgoCD syncs `k8s/` after `./scripts/cluster.sh argocd`. Validate locally:
+
 ```bash
-kubectl kustomize k8s          # validate
-kubectl apply -k k8s
+kubectl kustomize k8s          # validate manifests
 kubectl -n llm-gateway get pods -w   # llama-cpp ~2 min/pod to load model
+```
+
+Manual bootstrap (without ArgoCD) after prerequisites:
+
+```bash
+kubectl apply -k k8s
 ```
 
 Cloudflare Tunnel is commented out in `kustomization.yaml` until a token is configured.
 
-### ArgoCD (optional GitOps)
+### ArgoCD (app owner)
 
 ```bash
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl apply -f k8s/argocd/application.yaml
+./scripts/cluster.sh argocd
+# or: cd ansible && ansible-playbook deploy-argocd.yml
 ```
+
+ArgoCD installs from a pinned manifest (`argocd_version` in `ansible/group_vars/all.yml`) and applies `k8s/argocd/application.yaml`. The Application manifest is **not** part of `kustomization.yaml`.
+
+**Requirements:** `repoURL` and `targetRevision` in `application.yaml` must match your pushed Git remote. The cluster must reach GitHub (or configure private-repo credentials in ArgoCD).
+
+**Caveats:**
+
+- `automated.selfHeal: true` reverts manual `kubectl edit` on synced resources — change secrets in Git (`litellm-secret.yaml`, `grafana-secret.yaml`) or move them out of the kustomization.
+- First sync needs Gateway API CRDs and Istio already installed (`deploy-llm-stack.yml`).
+- `./scripts/cluster.sh pause` disables auto-sync before scaling to 0; `resume` re-enables sync.
 
 ## Development testing
 

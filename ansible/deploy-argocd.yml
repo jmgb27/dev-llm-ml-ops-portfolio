@@ -1,0 +1,209 @@
+---
+# Install ArgoCD and hand llm-gateway app ownership to GitOps.
+#
+# Prerequisites:
+#   ansible-playbook deploy-llm-stack.yml   (models, Gateway API, Istio, CNI fix)
+#
+# Usage:
+#   ansible-playbook deploy-argocd.yml
+#   ./scripts/cluster.sh argocd
+
+- name: Validate ArgoCD prerequisites
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [always, argocd]
+  tasks:
+    - name: Check Application manifest exists
+      ansible.builtin.stat:
+        path: "{{ argocd_application_file }}"
+      register: argocd_app_manifest
+
+    - name: Fail when Application manifest is missing
+      ansible.builtin.fail:
+        msg: "ArgoCD Application not found at {{ argocd_application_file }}"
+      when: not argocd_app_manifest.stat.exists
+
+- name: Install ArgoCD and register llm-gateway Application
+  hosts: k3s_master
+  tags: [argocd]
+  tasks:
+    - name: Create argocd namespace
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - create
+          - namespace
+          - "{{ argocd_namespace }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: argocd_ns
+      failed_when: argocd_ns.rc != 0 and 'AlreadyExists' not in argocd_ns.stderr
+      changed_when: argocd_ns.rc == 0
+
+    - name: Install ArgoCD control plane
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -n
+          - "{{ argocd_namespace }}"
+          - -f
+          - "{{ argocd_install_manifest }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: argocd_install
+      changed_when: "'created' in argocd_install.stdout or 'configured' in argocd_install.stdout"
+
+    - name: Wait for argocd-server rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - deployment/argocd-server
+          - -n
+          - "{{ argocd_namespace }}"
+          - --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Wait for argocd-repo-server rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - deployment/argocd-repo-server
+          - -n
+          - "{{ argocd_namespace }}"
+          - --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Wait for argocd-application-controller rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - statefulset/argocd-application-controller
+          - -n
+          - "{{ argocd_namespace }}"
+          - --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Copy llm-gateway Application manifest to master
+      ansible.builtin.copy:
+        src: "{{ argocd_application_file }}"
+        dest: /tmp/argocd-llm-gateway-application.yaml
+        mode: "0644"
+
+    - name: Register llm-gateway Application with ArgoCD
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -f
+          - /tmp/argocd-llm-gateway-application.yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: argocd_app_apply
+      changed_when: "'created' in argocd_app_apply.stdout or 'configured' in argocd_app_apply.stdout"
+
+    - name: Read ArgoCD initial admin password
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - "{{ argocd_namespace }}"
+          - get
+          - secret
+          - argocd-initial-admin-secret
+          - -o
+          - jsonpath={.data.password}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: argocd_admin_b64
+      failed_when: false
+      changed_when: false
+
+    - name: Show ArgoCD UI access hint
+      ansible.builtin.debug:
+        msg: >-
+          ArgoCD UI: kubectl -n {{ argocd_namespace }} port-forward svc/argocd-server 8080:443
+          — user admin, password: {{
+            (argocd_admin_b64.stdout | b64decode) if argocd_admin_b64.rc == 0 and argocd_admin_b64.stdout | length > 0
+            else '(secret not ready yet; kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)'
+          }}
+
+- name: Wait for ArgoCD to sync llm-gateway workloads
+  hosts: k3s_master
+  tags: [argocd]
+  tasks:
+    - name: Wait for llm-gateway namespace
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - namespace
+          - "{{ llm_gateway_namespace }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: ns_check
+      until: ns_check.rc == 0
+      retries: 24
+      delay: 10
+      changed_when: false
+
+    - name: Wait for llama-cpp rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - "{{ llm_gateway_namespace }}"
+          - rollout
+          - status
+          - deployment/llama-cpp
+          - --timeout={{ argocd_app_rollout_timeout }}s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Wait for litellm rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - "{{ llm_gateway_namespace }}"
+          - rollout
+          - status
+          - deployment/litellm
+          - --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Show llm-gateway pods
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - "{{ llm_gateway_namespace }}"
+          - get
+          - pods
+          - -o
+          - wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: llm_pods
+      changed_when: false
+
+    - name: Display pod status
+      ansible.builtin.debug:
+        msg: "{{ llm_pods.stdout_lines }}"

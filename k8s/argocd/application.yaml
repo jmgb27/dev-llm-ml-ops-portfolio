@@ -1,3 +1,5 @@
+# Root Application — applied once by ansible/deploy-argocd.yml (not part of k8s/kustomization.yaml).
+# repoURL must be reachable from the cluster; targetRevision must match your default branch.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
