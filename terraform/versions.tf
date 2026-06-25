@@ -6,6 +6,10 @@ terraform {
       source  = "bpg/proxmox"
       version = "~> 0.80"
     }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.0"
+    }
   }
 }
 
@@ -18,4 +22,8 @@ provider "proxmox" {
     agent    = true
     username = var.proxmox_ssh_username
   }
+}
+
+provider "cloudflare" {
+  api_token = local.cloudflare_api_token
 }

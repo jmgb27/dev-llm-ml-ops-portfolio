@@ -4,21 +4,21 @@ Production manifests for the heterogeneous K3s cluster. Mirrors the local [docke
 
 ## What runs where
 
-| Pod | Replicas | Node | Service port |
-|-----|----------|------|--------------|
-| `llama-cpp` | 2 | `cpu-feature=avx2` workers | `8080` (internal) |
-| `litellm` | 1 | master (`cpu-feature=base`) | `4000` |
-| `redis` | 1 | master | `6379` |
-| `prometheus` | 1 | master | `9090` |
-| `grafana` | 1 | master | `3000` |
-| `waypoint` (Istio) | 1 | master | mesh L7 proxy |
-| `cloudflared` | 2 | master | *(disabled until tunnel token set)* |
+| Pod                | Replicas | Node                        | Service port                        |
+| ------------------ | -------- | --------------------------- | ----------------------------------- |
+| `llama-cpp`        | 2        | `cpu-feature=avx2` workers  | `8080` (internal)                   |
+| `litellm`          | 1        | master (`cpu-feature=base`) | `4000`                              |
+| `redis`            | 1        | master                      | `6379`                              |
+| `prometheus`       | 1        | master                      | `9090`                              |
+| `grafana`          | 1        | master                      | `3000`                              |
+| `waypoint` (Istio) | 1        | master                      | mesh L7 proxy                       |
+| `cloudflared`      | 2        | master                      | _(disabled until tunnel token set)_ |
 
 Default cluster IPs (from Terraform):
 
-| Node | IP |
-|------|-----|
-| `k3s-master` | `192.168.100.71` |
+| Node            | IP               |
+| --------------- | ---------------- |
+| `k3s-master`    | `192.168.100.71` |
 | `k3s-worker-01` | `192.168.100.72` |
 | `k3s-worker-02` | `192.168.100.73` |
 
@@ -63,15 +63,17 @@ worker-01  worker-02             ← llama.cpp inference (-t 4, --parallel 4)
 
 ## Prerequisites
 
-1. **K3s cluster** — Ansible playbooks `bootstrap-k3s.yml` + `label-nodes.yml` ([ansible/README.md](../ansible/README.md)).
-2. **GGUF model** on every AVX2 worker at `/var/lib/llm-models/`:
+1. **K3s cluster** — `bootstrap-k3s.yml` + `label-nodes.yml` ([ansible/README.md](../ansible/README.md)).
+2. **GGUF model** on the Ansible control machine at `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` (deploy playbook copies to workers), or set `llm_skip_model_copy: true` if already on workers at `/var/lib/llm-models/`.
+
+**Automated deploy** (models, Gateway API, Istio, CNI fix, `kubectl apply -k k8s`):
 
 ```bash
-for host in 192.168.100.72 192.168.100.73; do
-  ssh ubuntu@$host 'sudo mkdir -p /var/lib/llm-models && sudo chown ubuntu:ubuntu /var/lib/llm-models'
-  scp models/Llama-3.2-1B-Instruct-Q4_K_M.gguf ubuntu@$host:/var/lib/llm-models/
-done
+cd ansible && ansible-playbook deploy-llm-stack.yml
+# or from repo root: ./scripts/cluster.sh deploy
 ```
+
+Manual prerequisites below if not using the playbook:
 
 3. **Gateway API CRDs** (required for Istio Waypoint):
 
@@ -93,9 +95,9 @@ cd ../ansible && ansible-playbook fix-istio-k3s-cni.yml
 The `fix-istio-k3s-cni.yml` playbook symlinks `istio-cni` into `/var/lib/rancher/k3s/data/cni/` on every node. Without it, `ztunnel` pods fail with `failed to find plugin "istio-cni"`.
 
 5. **Secrets** — edit before apply (defaults match `.env.example` for local dev):
-   - `gateway/litellm-secret.yaml` — `master-key` (`sk-1234`)
-   - `observability/grafana-secret.yaml` — admin credentials
-   - `gateway/cloudflared-secret.yaml` — tunnel token *(only when enabling cloudflared)*
+    - `gateway/litellm-secret.yaml` — `master-key` (`sk-1234`)
+    - `observability/grafana-secret.yaml` — admin credentials
+    - `gateway/cloudflared-secret.yaml` — tunnel token _(only when enabling cloudflared)_
 
 ## Deploy
 
@@ -139,6 +141,15 @@ curl -s http://localhost:4000/v1/chat/completions \
   -d '{"model":"llama3","messages":[{"role":"user","content":"Hello from K3s"}]}' | jq .
 ```
 
+### Automated tests
+
+```bash
+./scripts/tests/run-all.sh          # auth, rate limits, load spike
+./scripts/tests/run-all.sh --chaos    # worker failover, pod recovery, AVX2
+```
+
+Full catalog: [`scripts/tests/README.md`](../scripts/tests/README.md).
+
 ### Useful commands
 
 ```bash
@@ -154,13 +165,13 @@ kubectl get pods -n istio-system
 
 Learned from deploying on 4-vCPU worker VMs:
 
-| Setting | Value | Reason |
-|---------|-------|--------|
-| `llama-cpp` CPU **requests** | `3000m` | Workers have 4 allocatable CPUs; 4000m request blocks scheduling alongside Istio/Traefik |
-| `llama-cpp` CPU **limits** | `4` | Matches `-t 4` llama.cpp threads |
-| Rolling update `maxSurge` | `0` | Prevents a third pending pod during deploys on tight CPU |
-| Waypoint `nodeSelector` | `k3s-master` | Keeps L7 proxy off inference nodes |
-| Model storage | hostPath `/var/lib/llm-models` | No shared cluster storage yet |
+| Setting                      | Value                          | Reason                                                                                   |
+| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `llama-cpp` CPU **requests** | `3000m`                        | Workers have 4 allocatable CPUs; 4000m request blocks scheduling alongside Istio/Traefik |
+| `llama-cpp` CPU **limits**   | `4`                            | Matches `-t 4` llama.cpp threads                                                         |
+| Rolling update `maxSurge`    | `0`                            | Prevents a third pending pod during deploys on tight CPU                                 |
+| Waypoint `nodeSelector`      | `k3s-master`                   | Keeps L7 proxy off inference nodes                                                       |
+| Model storage                | hostPath `/var/lib/llm-models` | No shared cluster storage yet                                                            |
 
 ## Cloudflare Tunnel (production ingress)
 

@@ -30,11 +30,11 @@ Traditional service meshes inject Envoy proxy "sidecars" into every application 
 
 Both can load-balance HTTP traffic, but they operate at different layers and make decisions with different context. This project uses them as a **two-tier system**, not as duplicates.
 
-| | **LiteLLM** (AI gateway) | **Istio Ambient** (service mesh) |
-| :-- | :-- | :-- |
-| **Role** | Application policy & queueing | Network delivery & pod health |
-| **Balances by** | Model, tokens (RPM/TPM), API keys, spend caps | Pod health, connections, latency (`least_request`) |
-| **Queue** | Redis — holds bursts before they hit inference | Stateless — routes live connections to healthy endpoints |
+|                     | **LiteLLM** (AI gateway)                                              | **Istio Ambient** (service mesh)                                              |
+| :------------------ | :-------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| **Role**            | Application policy & queueing                                         | Network delivery & pod health                                                 |
+| **Balances by**     | Model, tokens (RPM/TPM), API keys, spend caps                         | Pod health, connections, latency (`least_request`)                            |
+| **Queue**           | Redis — holds bursts before they hit inference                        | Stateless — routes live connections to healthy endpoints                      |
 | **On node failure** | Keeps calling the `llama-cpp` Service; does not track individual pods | Detects dead pods and re-routes to surviving i5 workers over mTLS (`ztunnel`) |
 
 **Flow:** Client → LiteLLM (auth, rate limits, Redis queue) → `llama-cpp` Service → Istio Waypoint (pod-level routing) → llama.cpp on AVX2 workers.
@@ -136,23 +136,23 @@ While this architecture leverages enterprise-grade deployment, container orchest
 
 What is **built and running** on the homelab cluster today:
 
-| Layer | Status | Notes |
-|-------|--------|-------|
-| Proxmox VMs (Terraform) | ✅ | 1 master + 2 workers on `192.168.100.0/24` |
-| K3s cluster (Ansible) | ✅ | v1.35.x, nodes labeled `cpu-feature=avx2\|base` |
-| LLM stack (`kubectl apply -k k8s`) | ✅ | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana |
-| Istio Ambient mesh | ✅ | ztunnel + Waypoint L7 routing to inference pods |
-| Docker Compose local dev | ✅ | Same stack for laptop testing without a cluster |
-| Cloudflare Tunnel | ⏳ | Manifests exist; disabled in `kustomization.yaml` until token is set |
-| ArgoCD GitOps | ⏳ | `k8s/argocd/application.yaml` ready; not required for manual deploy |
+| Layer                              | Status | Notes                                                                |
+| ---------------------------------- | ------ | -------------------------------------------------------------------- |
+| Proxmox VMs (Terraform)            | ✅     | 1 master + 2 workers on `192.168.100.0/24`                           |
+| K3s cluster (Ansible)              | ✅     | v1.35.x, nodes labeled `cpu-feature=avx2\|base`                      |
+| LLM stack (`kubectl apply -k k8s`) | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana                    |
+| Istio Ambient mesh                 | ✅     | ztunnel + Waypoint L7 routing to inference pods                      |
+| Docker Compose local dev           | ✅     | Same stack for laptop testing without a cluster                      |
+| Cloudflare Tunnel                  | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set |
+| ArgoCD GitOps                      | ⏳     | `k8s/argocd/application.yaml` ready; not required for manual deploy  |
 
 ### Cluster topology (default IPs)
 
-| Node | IP | Role | Key workloads |
-|------|-----|------|----------------|
-| `k3s-master` | `192.168.100.71` | control-plane | LiteLLM, Redis, Grafana, Prometheus, Istio Waypoint |
-| `k3s-worker-01` | `192.168.100.72` | inference | llama-cpp pod |
-| `k3s-worker-02` | `192.168.100.73` | inference | llama-cpp pod |
+| Node            | IP               | Role          | Key workloads                                       |
+| --------------- | ---------------- | ------------- | --------------------------------------------------- |
+| `k3s-master`    | `192.168.100.71` | control-plane | LiteLLM, Redis, Grafana, Prometheus, Istio Waypoint |
+| `k3s-worker-01` | `192.168.100.72` | inference     | llama-cpp pod                                       |
+| `k3s-worker-02` | `192.168.100.73` | inference     | llama-cpp pod                                       |
 
 GGUF models are stored on workers at `/var/lib/llm-models/` (hostPath volume).
 
@@ -177,22 +177,29 @@ terraform apply
 terraform output -raw ansible_inventory_ini > ../ansible/inventory.ini
 ```
 
-### Step 2: Ansible — K3s + node labels
+### Step 2: Ansible — K3s, labels, and LLM stack
 
 ```bash
 cd ../ansible
 ansible k3s_cluster -m ping
 ansible-playbook bootstrap-k3s.yml
 ansible-playbook label-nodes.yml
+ansible-playbook deploy-llm-stack.yml
 ```
+
+Or: `./scripts/cluster.sh deploy` from the repo root (requires `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` on your laptop).
 
 Verify:
 
 ```bash
-ssh ubuntu@192.168.100.71 sudo kubectl get nodes --show-labels | grep cpu-feature
+export KUBECONFIG=ansible/kubeconfig/k3s.yaml
+kubectl get nodes --show-labels | grep cpu-feature
+kubectl -n llm-gateway get pods
 ```
 
 ### Step 3: Copy model to inference workers
+
+Handled by `deploy-llm-stack.yml`. To copy manually:
 
 ```bash
 # From repo root
@@ -204,7 +211,7 @@ done
 
 ### Step 4: Istio Ambient on K3s
 
-K3s uses non-standard CNI paths — install with the K3s platform profile, then run the CNI fix playbook.
+Handled by `deploy-llm-stack.yml`. Manual install:
 
 ```bash
 # On the master (or with KUBECONFIG pointing at the cluster)
@@ -221,6 +228,8 @@ cd ../../ansible && ansible-playbook fix-istio-k3s-cni.yml
 ```
 
 ### Step 5: Deploy the LLM stack
+
+Handled by `deploy-llm-stack.yml`. Manual apply:
 
 ```bash
 # From repo root — edit secrets in k8s/gateway/ and k8s/observability/ first if needed
@@ -244,10 +253,10 @@ kubectl apply -f k8s/argocd/application.yaml
 
 Two supported paths:
 
-| Environment | When to use | How to call the API |
-|-------------|-------------|---------------------|
-| **Docker Compose** | Fastest local iteration, no cluster | `docker compose up` → `http://localhost:4000` |
-| **K3s cluster** | Production-like path with Istio + scheduling | `kubectl port-forward` (see below) |
+| Environment        | When to use                                  | How to call the API                           |
+| ------------------ | -------------------------------------------- | --------------------------------------------- |
+| **Docker Compose** | Fastest local iteration, no cluster          | `docker compose up` → `http://localhost:4000` |
+| **K3s cluster**    | Production-like path with Istio + scheduling | `kubectl port-forward` (see below)            |
 
 Services in Kubernetes are **ClusterIP** — they are not exposed on the master node IP (`192.168.100.71:4000`) by default. Istio load-balances **between llama-cpp worker pods** inside the cluster; it is not the external API entry point. **LiteLLM** is what clients call.
 
@@ -313,6 +322,17 @@ kubectl -n llm-gateway port-forward svc/prometheus 9090:9090
 Monitor token generation speed, Redis metrics, and LiteLLM gateway stats in the pre-provisioned **LLM API Gateway** Grafana dashboard.
 
 ### Simulated Enterprise Failure Scenarios
+
+Automated scripts live in [`scripts/tests/`](scripts/tests/README.md). Run against a port-forwarded gateway:
+
+```bash
+# Terminal 1
+kubectl -n llm-gateway port-forward svc/litellm 4000:4000
+
+# Terminal 2
+./scripts/tests/run-all.sh          # API security + load tests
+./scripts/tests/run-all.sh --chaos  # + worker failover, pod recovery, AVX2
+```
 
 To demonstrate the resilience of this architecture, the following chaos tests have been validated:
 

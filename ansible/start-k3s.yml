@@ -1,0 +1,38 @@
+---
+# Start K3s (master first, then workers).
+- name: Start K3s server on master
+  hosts: k3s_master
+  become: true
+  tasks:
+    - name: Start k3s
+      systemd:
+        name: k3s
+        state: started
+        enabled: true
+
+    - name: Wait for Kubernetes API
+      wait_for:
+        port: 6443
+        host: "{{ ansible_host }}"
+        timeout: 120
+
+- name: Start K3s agents on workers
+  hosts: k3s_workers
+  become: true
+  serial: 1
+  tasks:
+    - name: Start k3s-agent
+      systemd:
+        name: k3s-agent
+        state: started
+        enabled: true
+
+    - name: Wait for node to register
+      command: kubectl get node {{ inventory_hostname }}
+      delegate_to: "{{ groups['k3s_master'][0] }}"
+      become: true
+      register: node_check
+      until: node_check.rc == 0
+      retries: 24
+      delay: 5
+      changed_when: false

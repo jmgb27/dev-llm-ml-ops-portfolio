@@ -137,3 +137,4 @@ Chosen for this project's K3s + Ansible stack:
 
 - `terraform/` — clones this template and sets CPU, RAM, disk, static IP, SSH keys
 - `terraform/terraform.tfvars.example` — copy to `terraform.tfvars` and set `template_vm_id`
+- `tests/` — LLM gateway API and chaos tests ([tests/README.md](tests/README.md))

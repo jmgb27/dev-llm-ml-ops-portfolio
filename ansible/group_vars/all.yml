@@ -2,3 +2,25 @@
 k3s_version: ""
 
 k3s_server_url: "https://{{ hostvars[groups['k3s_master'][0]].ansible_host }}:6443"
+
+# --- LLM stack deploy (deploy-llm-stack.yml) ---
+
+llm_model_filename: Llama-3.2-1B-Instruct-Q4_K_M.gguf
+llm_model_local_path: "{{ playbook_dir }}/../models/{{ llm_model_filename }}"
+llm_model_host_dir: /var/lib/llm-models
+llm_skip_model_copy: false
+
+istio_version: "1.24.2"
+istio_install_dir: "/opt/istio-{{ istio_version }}"
+# istioctl uses --wait=false; ztunnel is waited on after the K3s CNI symlink fix.
+istio_ztunnel_rollout_timeout: 600
+gateway_api_version: "v1.2.1"
+gateway_api_manifest_url: >-
+  https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
+
+llm_k8s_local_path: "{{ playbook_dir }}/../k8s"
+llm_k8s_remote_dir: /opt/llm-gateway/k8s
+llm_gateway_namespace: llm-gateway
+
+# Fetch kubeconfig to ansible/kubeconfig/ when running deploy with --tags kubeconfig
+llm_kubeconfig_local_dir: "{{ playbook_dir }}/kubeconfig"

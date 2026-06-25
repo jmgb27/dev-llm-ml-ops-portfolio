@@ -1,0 +1,20 @@
+---
+# Gracefully stop K3s on all nodes (workers first, master last).
+- name: Stop K3s agents on workers
+  hosts: k3s_workers
+  become: true
+  serial: 1
+  tasks:
+    - name: Stop k3s-agent
+      systemd:
+        name: k3s-agent
+        state: stopped
+
+- name: Stop K3s server on master
+  hosts: k3s_master
+  become: true
+  tasks:
+    - name: Stop k3s
+      systemd:
+        name: k3s
+        state: stopped

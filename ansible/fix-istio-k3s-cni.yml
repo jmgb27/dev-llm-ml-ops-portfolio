@@ -4,9 +4,10 @@
 - name: Fix Istio CNI binary path for K3s
   hosts: k3s_cluster
   become: true
+  tags: [istio, stack]
   tasks:
     - name: Symlink istio-cni into K3s CNI plugin directory
-      file:
+      ansible.builtin.file:
         src: /var/lib/rancher/k3s/data/current/bin/istio-cni
         dest: /var/lib/rancher/k3s/data/cni/istio-cni
         state: link
@@ -15,14 +16,33 @@
 - name: Restart ztunnel pods if Istio is installed
   hosts: k3s_master
   become: true
+  tags: [istio, stack]
   tasks:
     - name: Check for ztunnel daemonset
-      command: kubectl get daemonset ztunnel -n istio-system
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - daemonset
+          - ztunnel
+          - -n
+          - istio-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       register: ztunnel_ds
       failed_when: false
       changed_when: false
 
     - name: Rollout restart ztunnel
-      command: kubectl rollout restart daemonset/ztunnel -n istio-system
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - restart
+          - daemonset/ztunnel
+          - -n
+          - istio-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       when: ztunnel_ds.rc == 0
       changed_when: true

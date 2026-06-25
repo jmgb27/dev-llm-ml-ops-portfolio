@@ -1,37 +1,37 @@
 model_list:
-  - model_name: llama3
-    litellm_params:
-      model: openai/llama3
-      api_base: http://llama-worker-01:8080/v1
-      api_key: sk-dummy-upstream
-      # Match llama.cpp --parallel slots; excess traffic queues in Redis
-      max_parallel_requests: 4
-    # Perimeter rate limits — hard 429 when exceeded (see enforce_model_rate_limits)
-    rpm: 60
-    tpm: 80000
+    - model_name: llama3
+      litellm_params:
+          model: openai/llama3
+          api_base: http://llama-worker-01:8080/v1
+          api_key: sk-dummy-upstream
+          # Match llama.cpp --parallel slots; excess traffic queues in Redis
+          max_parallel_requests: 4
+      # Perimeter rate limits — hard 429 when exceeded (see enforce_model_rate_limits)
+      rpm: 60
+      tpm: 80000
 
 litellm_settings:
-  cache: true
-  cache_params:
-    type: redis
-    host: os.environ/REDIS_HOST
-    port: os.environ/REDIS_PORT
-    password: os.environ/REDIS_PASSWORD
-    ttl: 3600
-  callbacks:
-    - prometheus
-  service_callback:
-    - prometheus_system
+    cache: true
+    cache_params:
+        type: redis
+        host: os.environ/REDIS_HOST
+        port: os.environ/REDIS_PORT
+        password: os.environ/REDIS_PASSWORD
+        ttl: 3600
+    callbacks:
+        - prometheus
+    service_callback:
+        - prometheus_system
 
 router_settings:
-  routing_strategy: simple-shuffle
-  redis_host: os.environ/REDIS_HOST
-  redis_port: os.environ/REDIS_PORT
-  redis_password: os.environ/REDIS_PASSWORD
-  optional_pre_call_checks:
-    - enforce_model_rate_limits
+    routing_strategy: simple-shuffle
+    redis_host: os.environ/REDIS_HOST
+    redis_port: os.environ/REDIS_PORT
+    redis_password: os.environ/REDIS_PASSWORD
+    optional_pre_call_checks:
+        - enforce_model_rate_limits
 
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
-  # Spoon-feed bursts to the worker instead of overwhelming llama.cpp
-  global_max_parallel_requests: 4
+    master_key: os.environ/LITELLM_MASTER_KEY
+    # Spoon-feed bursts to the worker instead of overwhelming llama.cpp
+    global_max_parallel_requests: 4

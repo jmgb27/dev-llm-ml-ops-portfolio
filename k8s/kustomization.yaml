@@ -4,30 +4,30 @@ kind: Kustomization
 namespace: llm-gateway
 
 resources:
-  - base/namespace.yaml
-  - base/resource-quota.yaml
-  - inference/llama-cpp-deploy.yaml
-  - inference/service.yaml
-  - gateway/redis-deploy.yaml
-  - gateway/litellm-config.yaml
-  - gateway/litellm-secret.yaml
-  - gateway/litellm-deploy.yaml
-  # Enable after setting tunnel token in cloudflared-secret.yaml
-  # - gateway/cloudflared-secret.yaml
-  # - gateway/cloudflared-deploy.yaml
-  - mesh/waypoint.yaml
-  - mesh/httproute.yaml
-  - observability/prometheus-config.yaml
-  - observability/prometheus.yaml
-  - observability/grafana-secret.yaml
-  - observability/grafana-config.yaml
-  - observability/grafana.yaml
+    - base/namespace.yaml
+    - base/resource-quota.yaml
+    - inference/llama-cpp-deploy.yaml
+    - inference/service.yaml
+    - gateway/redis-deploy.yaml
+    - gateway/litellm-config.yaml
+    - gateway/litellm-secret.yaml
+    - gateway/litellm-deploy.yaml
+    # Enable after setting tunnel token in cloudflared-secret.yaml
+    # - gateway/cloudflared-secret.yaml
+    # - gateway/cloudflared-deploy.yaml
+    - mesh/waypoint.yaml
+    - mesh/httproute.yaml
+    - observability/prometheus-config.yaml
+    - observability/prometheus.yaml
+    - observability/grafana-secret.yaml
+    - observability/grafana-config.yaml
+    - observability/grafana.yaml
 
 configMapGenerator:
-  # Dashboard JSON is copied from observability/grafana/dashboards/ — keep in sync when editing.
-  - name: grafana-dashboard-llm-gateway
-    files:
-      - observability/dashboards/llm-gateway.json
+    # Dashboard JSON is copied from observability/grafana/dashboards/ — keep in sync when editing.
+    - name: grafana-dashboard-llm-gateway
+      files:
+          - observability/dashboards/llm-gateway.json
 
 generatorOptions:
-  disableNameSuffixHash: true
+    disableNameSuffixHash: true

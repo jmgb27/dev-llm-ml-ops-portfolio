@@ -17,6 +17,15 @@ ssh_public_keys = [
   "ssh-ed25519 AAAA... your-key@laptop",
 ]
 
+# Cloudflare R2 — LiteLLM audit log export (s3_v2 callback)
+# User API token (cfut_*) needs: Workers R2 Storage Edit, API Tokens Read, API Tokens Edit
+enable_litellm_r2_logs = false
+# cloudflare_account_id = "your-cloudflare-account-id"
+# cloudflare_api_token  = "your-cloudflare-api-token"
+# litellm_r2_bucket_name = "litellm-audit-logs"
+# litellm_r2_location    = "enam"
+# litellm_r2_s3_path     = "litellm-audit"
+
 vms = {
   "k3s-master" = {
     node_name  = "pve"
