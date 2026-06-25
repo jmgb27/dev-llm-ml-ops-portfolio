@@ -22,4 +22,4 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=false
-      - ServerSideApply=true
+      # ServerSideApply disabled: breaks diff on K8s 1.35 Deployment.status.terminatingReplicas (ArgoCD < 3.3.4).

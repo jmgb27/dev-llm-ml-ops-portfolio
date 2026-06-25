@@ -25,7 +25,7 @@ llm_kubeconfig_local_dir: "{{ playbook_dir }}/kubeconfig"
 
 # --- ArgoCD GitOps (deploy-argocd.yml) ---
 
-argocd_version: "v2.14.2"
+argocd_version: "v3.3.5"
 argocd_namespace: argocd
 argocd_install_manifest: >-
   https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml

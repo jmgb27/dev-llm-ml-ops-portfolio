@@ -47,6 +47,8 @@
         argv:
           - kubectl
           - apply
+          - --server-side
+          - --force-conflicts
           - -n
           - "{{ argocd_namespace }}"
           - -f

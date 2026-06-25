@@ -151,7 +151,7 @@ llm_skip_model_copy: false   # true when GGUF already on workers
 istio_version: "1.24.2"
 
 # deploy-argocd.yml
-argocd_version: "v2.14.2"
+argocd_version: "v3.3.5"
 ```
 
 ## Inventory
