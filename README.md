@@ -1,6 +1,6 @@
-# 🌐 Edge-Native LLM API Gateway: Heterogeneous Kubernetes Cluster
+# Edge-Native LLM API Gateway — Homelab Portfolio
 
-An enterprise-grade, highly available Local LLM API Gateway deployed on a heterogeneous Edge computing cluster.
+A homelab portfolio project that implements a local LLM API gateway on a heterogeneous edge K3s cluster. It applies **enterprise-style** patterns—GitOps, service mesh, queueing, observability—on constrained Proxmox hardware. This is a **demo and learning stack**, not a production-grade or highly available commercial deployment.
 
 This project demonstrates hardware-aware workload scheduling, GitOps deployment practices, advanced sidecarless service mesh networking, and local Generative AI infrastructure management. It leverages **Proxmox VE** for virtualization and **K3s** for container orchestration, dynamically routing inference workloads across nodes with vastly different CPU architectures.
 
@@ -15,7 +15,7 @@ Modern Large Language Model runtimes (like `llama.cpp` or Ollama) require the **
 
 ---
 
-## 🏗️ Enterprise System Architecture
+## System Architecture
 
 ### Sidecarless Service Mesh (Istio Ambient Mode) & L7 Routing
 
@@ -66,7 +66,7 @@ Because this cluster shares physical hardware with other homelab services (e.g.,
 - **Service Mesh:** Istio (Ambient Mode) via Kubernetes Gateway API
 - **Model Runtime:** `llama.cpp` (Server mode natively compiled in C++)
 - **API Gateway & Queuing:** LiteLLM + Redis
-- **Chat UI:** FastAPI proxy + streaming web frontend
+- **Chat UI:** Edge LLM Demo — FastAPI proxy + streaming web frontend (portfolio showcase)
 - **Observability:** Prometheus + Grafana
 
 ---
@@ -147,7 +147,7 @@ What is **built and running** on the homelab cluster today:
 | LLM stack (ArgoCD GitOps)          | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
 | Istio Ambient mesh                 | ✅     | ztunnel + Waypoint L7 routing to inference pods                      |
 | Docker Compose local dev           | ✅     | Same stack for laptop testing without a cluster                      |
-| Chat UI (streaming web frontend)   | ✅     | FastAPI proxy at `:8000`, key kept server-side                       |
+| Chat UI (Edge LLM Demo)            | ✅     | Portfolio demo at `:8000` — key kept server-side, not production chat |
 | Cloudflare Tunnel                  | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set |
 | ArgoCD GitOps                      | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`               |
 
@@ -291,7 +291,7 @@ curl -s http://localhost:4000/v1/chat/completions \
 
 Grafana: `kubectl -n llm-gateway port-forward svc/grafana 3000:3000` → `http://localhost:3000` (default `admin` / `admin`).
 
-### Chat UI
+### Edge LLM Demo (Chat UI)
 
 **Docker Compose:** after `docker compose up`, open **http://localhost:8000**.
 
@@ -302,6 +302,8 @@ kubectl -n llm-gateway port-forward svc/chat-ui 8000:8000
 ```
 
 The chat UI proxies to LiteLLM internally — the API key is not exposed to the browser. See [`chat-ui/README.md`](chat-ui/README.md) for build and test instructions.
+
+> **Disclaimer:** The chat UI is for **demo and portfolio purposes only**. It runs **Llama 3.2 1B** on edge homelab nodes with a **limited context window** (resource constraints on AVX2 workers). The 1B model **may be inaccurate** at times — it is not intended for production workloads.
 
 ### Inspect running workloads
 
@@ -321,7 +323,7 @@ With `docker compose up`, Prometheus scrapes LiteLLM (`:4000/metrics`), llama.cp
 
 | Service    | URL                     |
 | :--------- | :---------------------- |
-| Chat UI    | `http://localhost:8000` |
+| Edge LLM Demo | `http://localhost:8000` |
 | Grafana    | `http://localhost:3000` |
 | Prometheus | `http://localhost:9090` |
 | LiteLLM    | `http://localhost:4000` |

@@ -114,7 +114,9 @@ async def test_chat_forwards_messages_and_injects_key() -> None:
         (500, "Upstream error"),
     ],
 )
-async def test_chat_maps_upstream_errors(status_code: int, expected_fragment: str) -> None:
+async def test_chat_maps_upstream_errors(
+    status_code: int, expected_fragment: str
+) -> None:
     fake_client = FakeAsyncClient(FakeStreamResponse(status_code=status_code))
 
     with patch("app.main.httpx.AsyncClient", return_value=fake_client):

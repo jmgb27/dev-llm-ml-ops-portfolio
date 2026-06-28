@@ -23,7 +23,7 @@ UPSTREAM_TIMEOUT = float(os.environ.get("UPSTREAM_TIMEOUT", "180"))
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="LLM Chat UI", version="1.0.0")
+app = FastAPI(title="Edge LLM Demo", version="1.0.0")
 
 
 class ChatMessage(BaseModel):
@@ -37,6 +37,31 @@ class ChatRequest(BaseModel):
 
 def _sse_error(message: str) -> str:
     return f"data: {json.dumps({'error': message})}\n\n"
+
+
+def _extract_upstream_error(body: bytes, status_code: int) -> str:
+    default = f"Upstream error ({status_code})."
+    if not body:
+        return default
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        text = body.decode(errors="replace").strip()
+        return text[:300] if text else default
+
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message") or error.get("detail")
+        if message:
+            return str(message)
+    if isinstance(error, str):
+        return error
+
+    message = payload.get("message") or payload.get("detail")
+    if message:
+        return str(message)
+
+    return default
 
 
 @app.get("/healthz")
@@ -79,7 +104,14 @@ async def chat(request: ChatRequest) -> StreamingResponse:
                         yield _sse_error("Rate limit exceeded. Please wait and try again.")
                         return
                     if response.status_code >= 400:
-                        yield _sse_error(f"Upstream error ({response.status_code}).")
+                        body = await response.aread()
+                        detail = _extract_upstream_error(body, response.status_code)
+                        logger.warning(
+                            "LiteLLM returned %s: %s",
+                            response.status_code,
+                            detail,
+                        )
+                        yield _sse_error(detail)
                         return
 
                     async for line in response.aiter_lines():

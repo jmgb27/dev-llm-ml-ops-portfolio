@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LLM Gateway Chat</title>
+    <title>Edge LLM Demo</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,8 +23,8 @@
             </svg>
           </div>
           <div>
-            <h1>LLM Gateway</h1>
-            <p class="header__subtitle">Edge-native inference chat</p>
+            <h1>Edge LLM Demo</h1>
+            <p class="header__subtitle">Homelab portfolio showcase</p>
           </div>
         </div>
         <div class="header__actions">
@@ -36,6 +36,11 @@
           <button type="button" class="btn btn--secondary" id="new-chat">New chat</button>
         </div>
       </header>
+
+      <p class="disclaimer" id="disclaimer">
+        <strong>Demo only.</strong>
+        Llama&nbsp;3.2&nbsp;1B on edge homelab hardware — limited context and compute by design. Small models can be inaccurate; not for production use.
+      </p>
 
       <main class="chat" id="chat" aria-live="polite" aria-label="Chat messages"></main>
 
@@ -57,7 +62,7 @@
               </svg>
             </button>
           </div>
-          <p class="composer__hint">Enter to send · Shift+Enter for newline · Powered by LiteLLM + llama.cpp</p>
+          <p class="composer__hint">Enter to send · Shift+Enter for newline · Demo stack: LiteLLM + llama.cpp on K3s</p>
         </form>
       </footer>
     </div>
