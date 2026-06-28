@@ -1,5 +1,8 @@
 # Local env overrides
 .env
 
+# Python virtual environments
+chat-ui/.venv/
+
 # Large model weights (download separately)
 models/*.gguf

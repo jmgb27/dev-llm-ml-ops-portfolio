@@ -106,3 +106,22 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+
+  chat-ui:
+    build: ./chat-ui
+    container_name: chat-ui
+    ports:
+      - "${CHAT_UI_PORT:-8000}:8000"
+    environment:
+      LITELLM_BASE_URL: http://litellm-gateway:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_MODEL: llama3
+    depends_on:
+      - litellm-gateway
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

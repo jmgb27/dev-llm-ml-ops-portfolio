@@ -12,6 +12,7 @@ resources:
     - gateway/litellm-config.yaml
     - gateway/litellm-secret.yaml
     - gateway/litellm-deploy.yaml
+    - webui/chat-ui-deploy.yaml
     # Enable after setting tunnel token in cloudflared-secret.yaml
     # - gateway/cloudflared-secret.yaml
     # - gateway/cloudflared-deploy.yaml

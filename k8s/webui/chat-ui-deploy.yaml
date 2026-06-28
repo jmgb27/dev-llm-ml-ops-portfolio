@@ -1,0 +1,69 @@
+# Build locally: docker build --platform linux/amd64 -t chat-ui:latest ./chat-ui
+# Deploy: ./scripts/deploy-chat-ui.sh  (builds, imports to K3s master, applies manifest)
+# Or manually: docker save chat-ui:latest -o /tmp/chat-ui.tar && scp to master && sudo k3s ctr -n k8s.io images import /tmp/chat-ui.tar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: chat-ui
+    namespace: llm-gateway
+    labels:
+        app: chat-ui
+        app.kubernetes.io/component: webui
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: chat-ui
+    template:
+        metadata:
+            labels:
+                app: chat-ui
+                app.kubernetes.io/component: webui
+        spec:
+            nodeSelector:
+                cpu-feature: base
+            containers:
+                - name: chat-ui
+                  image: chat-ui:latest
+                  imagePullPolicy: Never
+                  ports:
+                      - name: http
+                        containerPort: 8000
+                  env:
+                      - name: LITELLM_BASE_URL
+                        value: http://litellm:4000
+                      - name: LITELLM_MODEL
+                        value: llama3
+                      - name: LITELLM_API_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: litellm-credentials
+                                key: master-key
+                  readinessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                  resources:
+                      requests:
+                          cpu: 50m
+                          memory: 128Mi
+                      limits:
+                          cpu: 500m
+                          memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: chat-ui
+    namespace: llm-gateway
+    labels:
+        app: chat-ui
+spec:
+    selector:
+        app: chat-ui
+    ports:
+        - name: http
+          port: 8000
+          targetPort: http

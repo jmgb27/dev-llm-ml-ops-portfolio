@@ -66,6 +66,7 @@ Because this cluster shares physical hardware with other homelab services (e.g.,
 - **Service Mesh:** Istio (Ambient Mode) via Kubernetes Gateway API
 - **Model Runtime:** `llama.cpp` (Server mode natively compiled in C++)
 - **API Gateway & Queuing:** LiteLLM + Redis
+- **Chat UI:** FastAPI proxy + streaming web frontend
 - **Observability:** Prometheus + Grafana
 
 ---
@@ -122,10 +123,13 @@ While this architecture leverages enterprise-grade deployment, container orchest
 │   ├── observability/
 │   │   ├── prometheus.yaml
 │   │   └── grafana.yaml
+│   ├── webui/
+│   │   └── chat-ui-deploy.yaml   # FastAPI chat UI proxy
 │   └── smoke-test/
 │       └── llama-cpp-worker.yaml # Single-worker validation (optional)
 ├── docker-compose.yml            # Local dev stack (no cluster required)
 ├── litellm_config.yaml           # LiteLLM config for Docker Compose
+├── chat-ui/                      # Streaming chat UI (FastAPI + static frontend)
 └── README.md
 
 ```
@@ -143,6 +147,7 @@ What is **built and running** on the homelab cluster today:
 | LLM stack (ArgoCD GitOps)          | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
 | Istio Ambient mesh                 | ✅     | ztunnel + Waypoint L7 routing to inference pods                      |
 | Docker Compose local dev           | ✅     | Same stack for laptop testing without a cluster                      |
+| Chat UI (streaming web frontend)   | ✅     | FastAPI proxy at `:8000`, key kept server-side                       |
 | Cloudflare Tunnel                  | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set |
 | ArgoCD GitOps                      | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`               |
 
@@ -257,7 +262,7 @@ Two supported paths:
 
 | Environment        | When to use                                  | How to call the API                           |
 | ------------------ | -------------------------------------------- | --------------------------------------------- |
-| **Docker Compose** | Fastest local iteration, no cluster          | `docker compose up` → `http://localhost:4000` |
+| **Docker Compose** | Fastest local iteration, no cluster          | `docker compose up` → Chat UI at `http://localhost:8000` (or API at `http://localhost:4000`) |
 | **K3s cluster**    | Production-like path with Istio + scheduling | `kubectl port-forward` (see below)            |
 
 Services in Kubernetes are **ClusterIP** — they are not exposed on the master node IP (`192.168.100.71:4000`) by default. Istio load-balances **between llama-cpp worker pods** inside the cluster; it is not the external API entry point. **LiteLLM** is what clients call.
@@ -286,6 +291,18 @@ curl -s http://localhost:4000/v1/chat/completions \
 
 Grafana: `kubectl -n llm-gateway port-forward svc/grafana 3000:3000` → `http://localhost:3000` (default `admin` / `admin`).
 
+### Chat UI
+
+**Docker Compose:** after `docker compose up`, open **http://localhost:8000**.
+
+**Kubernetes:**
+
+```bash
+kubectl -n llm-gateway port-forward svc/chat-ui 8000:8000
+```
+
+The chat UI proxies to LiteLLM internally — the API key is not exposed to the browser. See [`chat-ui/README.md`](chat-ui/README.md) for build and test instructions.
+
 ### Inspect running workloads
 
 ```bash
@@ -304,6 +321,7 @@ With `docker compose up`, Prometheus scrapes LiteLLM (`:4000/metrics`), llama.cp
 
 | Service    | URL                     |
 | :--------- | :---------------------- |
+| Chat UI    | `http://localhost:8000` |
 | Grafana    | `http://localhost:3000` |
 | Prometheus | `http://localhost:9090` |
 | LiteLLM    | `http://localhost:4000` |

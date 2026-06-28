@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Gateway Chat</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header__brand">
+          <div class="header__logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
+              <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
+            </svg>
+          </div>
+          <div>
+            <h1>LLM Gateway</h1>
+            <p class="header__subtitle">Edge-native inference chat</p>
+          </div>
+        </div>
+        <div class="header__actions">
+          <span class="badge" id="model-badge">llama3</span>
+          <button type="button" class="btn btn--ghost" id="theme-toggle" aria-label="Toggle theme">
+            <span class="theme-icon theme-icon--sun" aria-hidden="true">☀</span>
+            <span class="theme-icon theme-icon--moon" aria-hidden="true">☾</span>
+          </button>
+          <button type="button" class="btn btn--secondary" id="new-chat">New chat</button>
+        </div>
+      </header>
+
+      <main class="chat" id="chat" aria-live="polite" aria-label="Chat messages"></main>
+
+      <footer class="composer">
+        <form id="chat-form" class="composer__form">
+          <div class="composer__input-wrap">
+            <textarea
+              id="message-input"
+              class="composer__input"
+              rows="1"
+              placeholder="Message the model..."
+              autocomplete="off"
+              aria-label="Message input"
+            ></textarea>
+            <button type="submit" class="btn btn--primary composer__send" id="send-btn" aria-label="Send message">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M22 2L11 13" />
+                <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          </div>
+          <p class="composer__hint">Enter to send · Shift+Enter for newline · Powered by LiteLLM + llama.cpp</p>
+        </form>
+      </footer>
+    </div>
+
+    <div class="toast-container" id="toast-container" aria-live="assertive"></div>
+
+    <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -17,7 +17,7 @@ Commands:
   status       Show nodes and llm-gateway pods
   deploy       Ansible prerequisites (models, Gateway API, Istio, CNI fix, kubeconfig)
   argocd       Install ArgoCD and sync llm-gateway app from Git
-  port-forward Forward litellm (4000) or grafana (3000) — uses ansible/kubeconfig/k3s.yaml
+  port-forward Forward litellm (4000), chat-ui (8000), or grafana (3000) — uses ansible/kubeconfig/k3s.yaml
   pause        Disable ArgoCD auto-sync and scale llm-gateway to 0
   resume       Re-enable ArgoCD auto-sync (restores workloads from Git)
   stop         Stop K3s via Ansible (workers → master)
@@ -93,8 +93,12 @@ cmd_port_forward() {
       echo "Forwarding Grafana → http://localhost:3000 (KUBECONFIG=${KUBECONFIG:-$KUBECONFIG_FILE})"
       kubectl -n "$NS" port-forward svc/grafana 3000:3000
       ;;
+    chat-ui|chat|ui)
+      echo "Forwarding Chat UI → http://localhost:8000 (KUBECONFIG=${KUBECONFIG:-$KUBECONFIG_FILE})"
+      kubectl -n "$NS" port-forward svc/chat-ui 8000:8000
+      ;;
     *)
-      echo "Unknown port-forward target: $target (use litellm or grafana)" >&2
+      echo "Unknown port-forward target: $target (use litellm, chat-ui, or grafana)" >&2
       exit 1
       ;;
   esac
