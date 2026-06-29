@@ -13,9 +13,8 @@ resources:
     - gateway/litellm-secret.yaml
     - gateway/litellm-deploy.yaml
     - webui/chat-ui-deploy.yaml
-    # Enable after setting tunnel token in cloudflared-secret.yaml
-    # - gateway/cloudflared-secret.yaml
-    # - gateway/cloudflared-deploy.yaml
+    # cloudflared-credentials secret is NOT in Git — apply with scripts/apply-cloudflared-secret.sh
+    - gateway/cloudflared-deploy.yaml
     - mesh/waypoint.yaml
     - mesh/httproute.yaml
     - observability/prometheus-config.yaml

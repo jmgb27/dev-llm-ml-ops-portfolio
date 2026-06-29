@@ -98,7 +98,7 @@ The `fix-istio-k3s-cni.yml` playbook symlinks `istio-cni` into `/var/lib/rancher
 5. **Secrets** — edit before apply (defaults match `.env.example` for local dev):
     - `gateway/litellm-secret.yaml` — `master-key` (`sk-1234`)
     - `observability/grafana-secret.yaml` — admin credentials
-    - `gateway/cloudflared-secret.yaml` — tunnel token _(only when enabling cloudflared)_
+    - `gateway/cloudflared-secret.yaml.example` — tunnel token template _(apply with `scripts/apply-cloudflared-secret.sh`, not Git)_
 
 ## Deploy
 
@@ -190,9 +190,46 @@ Learned from deploying on 4-vCPU worker VMs:
 | Waypoint `nodeSelector`      | `k3s-master`                   | Keeps L7 proxy off inference nodes                                                       |
 | Model storage                | hostPath `/var/lib/llm-models` | No shared cluster storage yet                                                            |
 
-## Cloudflare Tunnel (production ingress)
+## Cloudflare Tunnel (public ingress)
 
-When ready, set `tunnel-token` in `gateway/cloudflared-secret.yaml`, uncomment in `kustomization.yaml`, and re-apply. In Zero Trust, point the public hostname at `http://litellm.llm-gateway.svc.cluster.local:4000`.
+Expose the **Edge LLM Demo** at e.g. `https://llm.johnmark.dev` without opening router ports.
+
+### 1. Zero Trust — tunnel + hostname
+
+1. [Zero Trust](https://one.dash.cloudflare.com/) → **Networks** → **Tunnels** → create tunnel → copy token.
+2. **Public Hostname:** `llm` + your domain → `http://chat-ui.llm-gateway.svc.cluster.local:8000`
+
+### 2. Store the token outside Git
+
+**Do not commit the tunnel token.** It grants connector access to your tunnel.
+
+```bash
+# In repo root .env (gitignored)
+echo 'CLOUDFLARE_TUNNEL_TOKEN=eyJ...' >> .env
+
+./scripts/apply-cloudflared-secret.sh
+kubectl apply -k k8s   # deploys cloudflared; secret applied separately
+```
+
+Template only: [`gateway/cloudflared-secret.yaml.example`](gateway/cloudflared-secret.yaml.example)
+
+### 3. Rotate if exposed
+
+If the token was ever committed or pasted in chat:
+
+1. Zero Trust → **Tunnels** → your tunnel → **Configure** → **Rotate token**
+2. Update `.env` with the new token
+3. Re-run `./scripts/apply-cloudflared-secret.sh`
+4. `kubectl -n llm-gateway rollout restart deployment/cloudflared`
+
+### 4. ArgoCD
+
+The tunnel **secret is intentionally omitted** from `kustomization.yaml` so GitOps never stores it. ArgoCD syncs `cloudflared-deploy` only; apply the secret manually (or add Sealed Secrets later).
+
+### 5. Lock down the public URL
+
+Add **Cloudflare Access** on `llm.yourdomain.dev` (email OTP / Google) so the demo is not open to the world.
+
 
 ## Smoke test
 

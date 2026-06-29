@@ -140,16 +140,16 @@ While this architecture leverages enterprise-grade deployment, container orchest
 
 What is **built and running** on the homelab cluster today:
 
-| Layer                              | Status | Notes                                                                |
-| ---------------------------------- | ------ | -------------------------------------------------------------------- |
-| Proxmox VMs (Terraform)            | ✅     | 1 master + 2 workers on `192.168.100.0/24`                           |
-| K3s cluster (Ansible)              | ✅     | v1.35.x, nodes labeled `cpu-feature=avx2\|base`                      |
-| LLM stack (ArgoCD GitOps)          | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
-| Istio Ambient mesh                 | ✅     | ztunnel + Waypoint L7 routing to inference pods                      |
-| Docker Compose local dev           | ✅     | Same stack for laptop testing without a cluster                      |
-| Chat UI (Edge LLM Demo)            | ✅     | Portfolio demo at `:8000` — key kept server-side, not production chat |
-| Cloudflare Tunnel                  | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set |
-| ArgoCD GitOps                      | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`               |
+| Layer                     | Status | Notes                                                                  |
+| ------------------------- | ------ | ---------------------------------------------------------------------- |
+| Proxmox VMs (Terraform)   | ✅     | 1 master + 2 workers on `192.168.100.0/24`                             |
+| K3s cluster (Ansible)     | ✅     | v1.35.x, nodes labeled `cpu-feature=avx2\|base`                        |
+| LLM stack (ArgoCD GitOps) | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
+| Istio Ambient mesh        | ✅     | ztunnel + Waypoint L7 routing to inference pods                        |
+| Docker Compose local dev  | ✅     | Same stack for laptop testing without a cluster                        |
+| Chat UI (Edge LLM Demo)   | ✅     | Portfolio demo at `:8000` — key kept server-side, not production chat  |
+| Cloudflare Tunnel         | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set   |
+| ArgoCD GitOps             | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`                 |
 
 ### Cluster topology (default IPs)
 
@@ -250,7 +250,7 @@ kubectl apply -k k8s
 kubectl -n llm-gateway get pods -w
 ```
 
-Cloudflare Tunnel is **commented out** in `k8s/kustomization.yaml` until you set a token in `gateway/cloudflared-secret.yaml`.
+Cloudflare Tunnel: enable `gateway/cloudflared-deploy.yaml` in `kustomization.yaml`, then apply the token with `./scripts/apply-cloudflared-secret.sh` (see [`k8s/README.md`](k8s/README.md#cloudflare-tunnel-public-ingress)). **Never commit the tunnel token.**
 
 **ArgoCD caveats:** `selfHeal: true` reverts manual edits to synced manifests — change secrets in Git. Use `./scripts/cluster.sh pause` / `resume` instead of scaling or re-applying by hand when ArgoCD is installed.
 
@@ -260,10 +260,10 @@ Cloudflare Tunnel is **commented out** in `k8s/kustomization.yaml` until you set
 
 Two supported paths:
 
-| Environment        | When to use                                  | How to call the API                           |
-| ------------------ | -------------------------------------------- | --------------------------------------------- |
+| Environment        | When to use                                  | How to call the API                                                                          |
+| ------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | **Docker Compose** | Fastest local iteration, no cluster          | `docker compose up` → Chat UI at `http://localhost:8000` (or API at `http://localhost:4000`) |
-| **K3s cluster**    | Production-like path with Istio + scheduling | `kubectl port-forward` (see below)            |
+| **K3s cluster**    | Production-like path with Istio + scheduling | `kubectl port-forward` (see below)                                                           |
 
 Services in Kubernetes are **ClusterIP** — they are not exposed on the master node IP (`192.168.100.71:4000`) by default. Istio load-balances **between llama-cpp worker pods** inside the cluster; it is not the external API entry point. **LiteLLM** is what clients call.
 
@@ -321,12 +321,12 @@ kubectl get pods -n istio-system                 # ztunnel, istio-cni, istiod
 
 With `docker compose up`, Prometheus scrapes LiteLLM (`:4000/metrics`), llama.cpp (`:8080/metrics`), and Redis. Grafana is pre-provisioned with an **LLM API Gateway** dashboard:
 
-| Service    | URL                     |
-| :--------- | :---------------------- |
+| Service       | URL                     |
+| :------------ | :---------------------- |
 | Edge LLM Demo | `http://localhost:8000` |
-| Grafana    | `http://localhost:3000` |
-| Prometheus | `http://localhost:9090` |
-| LiteLLM    | `http://localhost:4000` |
+| Grafana       | `http://localhost:3000` |
+| Prometheus    | `http://localhost:9090` |
+| LiteLLM       | `http://localhost:4000` |
 
 Default Grafana login: `admin` / `admin` (override via `GRAFANA_ADMIN_PASSWORD` in `.env`).
 
