@@ -3,6 +3,8 @@
 #
 # Prerequisites:
 #   ansible-playbook deploy-llm-stack.yml   (models, Gateway API, Istio, CNI fix)
+#   REGISTRY in repo-root .env (loaded by ./scripts/cluster.sh), or
+#   container_registry in ansible/group_vars/secrets.yml (see secrets.yml.example)
 #
 # Usage:
 #   ansible-playbook deploy-argocd.yml
@@ -15,15 +17,60 @@
   become: false
   tags: [always, argocd]
   tasks:
-    - name: Check Application manifest exists
+    - name: Check Application template exists
       ansible.builtin.stat:
-        path: "{{ argocd_application_file }}"
-      register: argocd_app_manifest
+        path: "{{ argocd_application_template }}"
+      register: argocd_app_template
 
-    - name: Fail when Application manifest is missing
+    - name: Fail when Application template is missing
       ansible.builtin.fail:
-        msg: "ArgoCD Application not found at {{ argocd_application_file }}"
-      when: not argocd_app_manifest.stat.exists
+        msg: "ArgoCD Application template not found at {{ argocd_application_template }}"
+      when: not argocd_app_template.stat.exists
+
+    - name: Load REGISTRY from repo-root .env when not already set
+      when: container_registry | default('', true) | length == 0
+      block:
+        - name: Read repo-root .env
+          ansible.builtin.slurp:
+            src: "{{ playbook_dir }}/../.env"
+          register: repo_env_file
+          failed_when: false
+
+        - name: Parse REGISTRY from .env
+          ansible.builtin.set_fact:
+            container_registry: >-
+              {{
+                (
+                  repo_env_file.content | b64decode
+                ).splitlines()
+                | select('match', '^REGISTRY=')
+                | map('regex_replace', '^REGISTRY=', '')
+                | map('regex_replace', '^["'']|["'']$', '')
+                | list
+                | first
+                | default('', true)
+              }}
+          when: repo_env_file is not failed and repo_env_file.content | length > 0
+
+    - name: Fail when container_registry is not configured
+      ansible.builtin.fail:
+        msg: >-
+          container_registry is not set. Add REGISTRY=your-registry.example.com to the
+          repo-root .env (use ./scripts/cluster.sh argocd), or copy
+          ansible/group_vars/secrets.yml.example to secrets.yml and set container_registry.
+      when: container_registry | default('', true) | length == 0
+
+    - name: Ensure Ansible cache directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/.cache"
+        state: directory
+        mode: "0700"
+
+    - name: Render llm-gateway Application manifest
+      ansible.builtin.template:
+        src: argocd-application.yaml.j2
+        dest: "{{ argocd_application_rendered }}"
+        mode: "0644"
 
 - name: Install ArgoCD and register llm-gateway Application
   hosts: k3s_master
@@ -102,7 +149,7 @@
 
     - name: Copy llm-gateway Application manifest to master
       ansible.builtin.copy:
-        src: "{{ argocd_application_file }}"
+        src: "{{ argocd_application_rendered }}"
         dest: /tmp/argocd-llm-gateway-application.yaml
         mode: "0644"
 

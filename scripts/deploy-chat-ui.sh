@@ -1,37 +1,50 @@
 #!/usr/bin/env bash
-# Build chat-ui for linux/amd64, import into K3s master, and apply the manifest.
+# Build chat-ui, push to your private registry, and restart the Deployment.
+# Prefer CI (.github/workflows/ci.yaml) for production — this script is for manual pushes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUBECONFIG_FILE="${ROOT}/ansible/kubeconfig/k3s.yaml"
-MASTER_IP="${K3S_MASTER_IP:-192.168.100.71}"
-MASTER_USER="${K3S_MASTER_USER:-ubuntu}"
-IMAGE="chat-ui:latest"
-TAR="/tmp/chat-ui-amd64.tar"
+IMAGE_NAME="${IMAGE_NAME:-chat-ui}"
+TAG="${IMAGE_TAG:-latest}"
+
+if [[ -f "${ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${ROOT}/.env"
+  set +a
+fi
+
+REGISTRY="${REGISTRY:-}"
+USERNAME="${REGISTRY_USERNAME:-}"
+PASSWORD="${REGISTRY_PASSWORD:-}"
+IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
+
+if [[ -z "${REGISTRY}" || -z "${USERNAME}" || -z "${PASSWORD}" ]]; then
+  cat >&2 <<EOF
+REGISTRY, REGISTRY_USERNAME, and REGISTRY_PASSWORD are required in ${ROOT}/.env
+
+For GitOps deploys, merge to master and let CI push the image + bump k8s/kustomization.yaml.
+EOF
+  exit 1
+fi
 
 echo "==> Building ${IMAGE} for linux/amd64 ..."
 docker build --platform linux/amd64 -t "${IMAGE}" "${ROOT}/chat-ui"
 
-echo "==> Saving image to ${TAR} ..."
-docker save "${IMAGE}" -o "${TAR}"
+echo "==> Logging in to registry ..."
+echo "${PASSWORD}" | docker login "${REGISTRY}" --username "${USERNAME}" --password-stdin
 
-echo "==> Copying to ${MASTER_USER}@${MASTER_IP} ..."
-scp "${TAR}" "${MASTER_USER}@${MASTER_IP}:/tmp/chat-ui-amd64.tar"
+echo "==> Pushing ${IMAGE} ..."
+docker push "${IMAGE}"
 
-echo "==> Importing into K3s containerd ..."
-ssh "${MASTER_USER}@${MASTER_IP}" \
-  "sudo k3s ctr -n k8s.io images rm docker.io/library/${IMAGE} 2>/dev/null || true; \
-   sudo k3s ctr -n k8s.io images import /tmp/chat-ui-amd64.tar; \
-   sudo k3s crictl images | grep chat-ui"
-
-echo "==> Applying Kubernetes manifest ..."
 export KUBECONFIG="${KUBECONFIG_FILE}"
-kubectl apply -f "${ROOT}/k8s/webui/chat-ui-deploy.yaml"
+echo "==> Restarting chat-ui Deployment ..."
 kubectl -n llm-gateway rollout restart deployment/chat-ui
 kubectl -n llm-gateway rollout status deployment/chat-ui --timeout=120s
 
 echo
-echo "Chat UI deployed. Port-forward:"
+echo "Chat UI updated. Port-forward:"
 echo "  export KUBECONFIG=${KUBECONFIG_FILE}"
 echo "  kubectl -n llm-gateway port-forward svc/chat-ui 8000:8000"
 echo "  open http://localhost:8000"

@@ -33,10 +33,11 @@ ansible-playbook label-nodes.yml
 ansible-playbook deploy-llm-stack.yml
 
 # 5. Install ArgoCD and sync llm-gateway from Git
+cp group_vars/secrets.yml.example group_vars/secrets.yml   # set container_registry
 ansible-playbook deploy-argocd.yml
 ```
 
-`deploy-llm-stack.yml` copies the GGUF model to workers, installs Gateway API + Istio Ambient, runs the K3s Istio CNI fix, and fetches kubeconfig to `ansible/kubeconfig/k3s.yaml`. **`deploy-argocd.yml`** installs ArgoCD and applies `k8s/argocd/application.yaml` so ArgoCD owns ongoing sync of `k8s/`.
+`deploy-llm-stack.yml` copies the GGUF model to workers, installs Gateway API + Istio Ambient, runs the K3s Istio CNI fix, and fetches kubeconfig to `ansible/kubeconfig/k3s.yaml`. **`deploy-argocd.yml`** installs ArgoCD and registers the llm-gateway Application (rendered from `templates/argocd-application.yaml.j2`) so ArgoCD owns ongoing sync of `k8s/`.
 
 From the repo root:
 
@@ -129,12 +130,12 @@ ArgoCD is the **app owner** for everything under `k8s/` (kustomization). Ansible
 
 1. Run `deploy-llm-stack.yml` first — `HTTPRoute`/`Gateway` need Gateway API + Istio present before the first sync.
 2. Run `deploy-argocd.yml` (or `./scripts/cluster.sh argocd`).
-3. Ensure `k8s/argocd/application.yaml` `repoURL` / `targetRevision` match your pushed Git remote (default: `master` on `jmgb27/devops_llmops_mlops_portfolio`). Private repos need ArgoCD repo credentials.
+3. Set `container_registry` in `group_vars/secrets.yml` (copy from `secrets.yml.example`). Ensure `argocd_repo_url` / `argocd_target_revision` in `group_vars/all.yml` match your pushed Git remote. Private repos need ArgoCD repo credentials.
 
 **Caveats:**
 
 - `selfHeal: true` reverts manual edits to synced resources (including `litellm-secret.yaml` / `grafana-secret.yaml`) — change those in Git or move secrets out of the kustomization.
-- `k8s/argocd/application.yaml` is **not** in `k8s/kustomization.yaml` so ArgoCD does not manage itself.
+- `k8s/argocd/application.yaml.example` is reference only — the live Application is rendered by Ansible and is **not** in `kustomization.yaml` so ArgoCD does not manage itself.
 
 Manual bootstrap (without ArgoCD) is still possible with `kubectl apply -k k8s` after prerequisites, but pause/resume in `cluster.sh` expects ArgoCD.
 
@@ -152,6 +153,12 @@ istio_version: "1.24.2"
 
 # deploy-argocd.yml
 argocd_version: "v3.3.5"
+```
+
+`group_vars/secrets.yml` (gitignored — copy from `secrets.yml.example`):
+
+```yaml
+container_registry: your-registry.example.com
 ```
 
 ## Inventory

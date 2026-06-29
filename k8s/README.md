@@ -11,6 +11,7 @@ Production manifests for the heterogeneous K3s cluster. Mirrors the local [docke
 | `redis`            | 1        | master                      | `6379`                              |
 | `prometheus`       | 1        | master                      | `9090`                              |
 | `grafana`          | 1        | master                      | `3000`                              |
+| `chat-ui`          | 1        | master                      | `8000` (private registry; host configured outside Git) |
 | `waypoint` (Istio) | 1        | master                      | mesh L7 proxy                       |
 | `cloudflared`      | 2        | master                      | _(disabled until tunnel token set)_ |
 
@@ -99,6 +100,9 @@ The `fix-istio-k3s-cni.yml` playbook symlinks `istio-cni` into `/var/lib/rancher
     - `gateway/litellm-secret.yaml` — `master-key` (`sk-1234`)
     - `observability/grafana-secret.yaml` — admin credentials
     - `gateway/cloudflared-secret.yaml.example` — tunnel token template _(apply with `scripts/apply-cloudflared-secret.sh`, not Git)_
+    - **Registry pull** — `registry-credentials` _(apply with `scripts/apply-registry-secret.sh`, not Git)_
+
+6. **chat-ui image** — CI publishes to your private registry; tag is in `kustomization.yaml` `images:` block. Registry host is set in `ansible/group_vars/secrets.yml` (ArgoCD kustomize override). One-time: `./scripts/apply-registry-secret.sh`.
 
 ## Deploy
 
@@ -115,7 +119,7 @@ Manual bootstrap (without ArgoCD) after prerequisites:
 kubectl apply -k k8s
 ```
 
-Cloudflare Tunnel is commented out in `kustomization.yaml` until a token is configured.
+Cloudflare Tunnel deploy manifest is in `kustomization.yaml`; the tunnel **token** is applied separately with `scripts/apply-cloudflared-secret.sh` (never committed to Git).
 
 ### ArgoCD (app owner)
 
@@ -124,9 +128,9 @@ Cloudflare Tunnel is commented out in `kustomization.yaml` until a token is conf
 # or: cd ansible && ansible-playbook deploy-argocd.yml
 ```
 
-ArgoCD installs from a pinned manifest (`argocd_version` in `ansible/group_vars/all.yml`) and applies `k8s/argocd/application.yaml`. The Application manifest is **not** part of `kustomization.yaml`.
+ArgoCD installs from a pinned manifest (`argocd_version` in `ansible/group_vars/all.yml`) and applies a rendered Application from `ansible/templates/argocd-application.yaml.j2` (registry host in gitignored `secrets.yml`). See `k8s/argocd/application.yaml.example` for structure. The Application is **not** part of `kustomization.yaml`.
 
-**Requirements:** `repoURL` and `targetRevision` in `application.yaml` must match your pushed Git remote. The cluster must reach GitHub (or configure private-repo credentials in ArgoCD).
+**Requirements:** `argocd_repo_url` / `argocd_target_revision` in `group_vars/all.yml` must match your pushed Git remote. The cluster must reach GitHub (or configure private-repo credentials in ArgoCD).
 
 **Caveats:**
 

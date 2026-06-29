@@ -1,0 +1,26 @@
+# Rendered by ansible/deploy-argocd.yml — registry host is not stored in Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ argocd_application_name }}
+  namespace: {{ argocd_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ argocd_repo_url }}
+    targetRevision: {{ argocd_target_revision }}
+    path: k8s
+    kustomize:
+      images:
+        - chat-ui={{ container_registry }}/chat-ui
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ llm_gateway_namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

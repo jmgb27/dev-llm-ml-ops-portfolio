@@ -1,6 +1,6 @@
-# Build locally: docker build --platform linux/amd64 -t chat-ui:latest ./chat-ui
-# Deploy: ./scripts/deploy-chat-ui.sh  (builds, imports to K3s master, applies manifest)
-# Or manually: docker save chat-ui:latest -o /tmp/chat-ui.tar && scp to master && sudo k3s ctr -n k8s.io images import /tmp/chat-ui.tar
+# CI builds and pushes chat-ui; ArgoCD syncs the tag from k8s/kustomization.yaml.
+# Registry host is configured outside Git (ansible/group_vars/secrets.yml + ArgoCD kustomize override).
+# One-time on cluster: ./scripts/apply-registry-secret.sh
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,12 +20,14 @@ spec:
                 app: chat-ui
                 app.kubernetes.io/component: webui
         spec:
+            imagePullSecrets:
+                - name: registry-credentials
             nodeSelector:
                 cpu-feature: base
             containers:
                 - name: chat-ui
-                  image: chat-ui:latest
-                  imagePullPolicy: Never
+                  image: chat-ui:bootstrap
+                  imagePullPolicy: IfNotPresent
                   ports:
                       - name: http
                         containerPort: 8000

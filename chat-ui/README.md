@@ -44,24 +44,19 @@ uvicorn app.main:app --reload --port 8000
 
 ## Kubernetes
 
-Build for **linux/amd64** (cluster nodes are Intel x86, not ARM):
+**Standard path:** CI (`.github/workflows/ci.yaml`) builds and publishes `chat-ui:<git-sha>` to your private registry on merge to `master`. ArgoCD syncs the tag from `k8s/kustomization.yaml`; the registry host is configured in `ansible/group_vars/secrets.yml` (not in Git).
+
+One-time on the cluster:
 
 ```bash
-# One-command deploy (build, import image, apply manifest)
+./scripts/apply-registry-secret.sh   # REGISTRY_USERNAME / REGISTRY_PASSWORD in .env
+```
+
+Manual push (same registry, e.g. for hotfixes):
+
+```bash
 ./scripts/deploy-chat-ui.sh
 ```
-
-Or manually:
-
-```bash
-docker build --platform linux/amd64 -t chat-ui:latest ./chat-ui
-docker save chat-ui:latest -o /tmp/chat-ui-amd64.tar
-scp /tmp/chat-ui-amd64.tar ubuntu@192.168.100.71:/tmp/
-ssh ubuntu@192.168.100.71 'sudo k3s ctr -n k8s.io images import /tmp/chat-ui-amd64.tar'
-kubectl apply -f k8s/webui/chat-ui-deploy.yaml
-```
-
-The manifest uses `imagePullPolicy: Never` so K3s uses the locally imported image.
 
 After deploy:
 

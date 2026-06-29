@@ -59,7 +59,7 @@ Because this cluster shares physical hardware with other homelab services (e.g.,
 
 ### The Software Stack
 
-- **CI/CD Pipeline:** GitHub Actions (CI) + ArgoCD (GitOps CD)
+- **CI/CD:** GitHub Actions (validate, test, publish `chat-ui` to private registry) + ArgoCD GitOps CD
 - **Infrastructure as Code:** Terraform (Proxmox VM Provisioning) + Ansible (K3s Bootstrapping & OS Configuration)
 - **Orchestration:** K3s (Lightweight Kubernetes)
 - **Public Ingress Edge:** Cloudflare Tunnel (`cloudflared`)
@@ -91,45 +91,50 @@ While this architecture leverages enterprise-grade deployment, container orchest
 ```text
 ├── .github/
 │   └── workflows/
-│       └── ci.yaml               # CI: Builds inference/gateway Docker images & updates manifests
+│       └── ci.yaml               # Validate, pytest, kustomize, push chat-ui to registry
 ├── terraform/
 │   ├── main.tf                   # Provisions VMs on Proxmox via BPG Provider
 │   ├── variables.tf              # VM resource sizing and network IP mapping
-│   └── outputs.tf                # Generates Ansible inventory output
+│   ├── outputs.tf                # Generates Ansible inventory output
+│   └── terraform.tfvars.example  # Copy to terraform.tfvars (not committed)
 ├── scripts/
-│   └── create-proxmox-template.sh # One-time Ubuntu 24.04 cloud-init template (see scripts/README.md)
+│   ├── cluster.sh                # deploy, argocd, status, pause/resume, port-forward, stop/start
+│   ├── create-proxmox-template.sh
+│   ├── fix-proxmox-template-cicustom.sh
+│   ├── apply-cloudflared-secret.sh
+│   ├── apply-registry-secret.sh
+│   ├── deploy-chat-ui.sh         # Manual registry push (CI is the standard path)
+│   ├── README.md                 # Proxmox template bootstrap
+│   └── tests/                    # API security, load, and chaos tests (see tests/README.md)
 ├── ansible/
-│   ├── inventory.ini             # Dynamic IPs mapped from Terraform outputs
-│   ├── bootstrap-k3s.yml         # Installs K3s and configures cluster
-│   ├── label-nodes.yml           # Detects CPU features & applies K8s labels
-│   └── fix-istio-k3s-cni.yml     # K3s-specific Istio CNI symlink fix
+│   ├── README.md                 # Playbooks, lifecycle, troubleshooting
+│   ├── inventory.ini             # From terraform output (regenerate after apply)
+│   ├── group_vars/all.yml        # K3s, Istio, ArgoCD, model paths
+│   ├── bootstrap-k3s.yml         # K3s server + agents
+│   ├── label-nodes.yml           # AVX2 detection → cpu-feature labels
+│   ├── deploy-llm-stack.yml      # Models, Gateway API, Istio, CNI fix, kubeconfig
+│   ├── deploy-argocd.yml         # ArgoCD install + llm-gateway Application
+│   ├── fix-istio-k3s-cni.yml     # K3s Istio CNI symlink (also run from deploy)
+│   ├── start-k3s.yml / stop-k3s.yml
+│   └── kubeconfig/               # Fetched k3s.yaml (gitignored contents)
 ├── k8s/
-│   ├── kustomization.yaml        # Root manifest bundle — kubectl apply -k k8s
-│   ├── README.md                 # Cluster deploy, Istio, dev testing (detailed)
+│   ├── kustomization.yaml        # Root bundle — ArgoCD sync path (or kubectl apply -k k8s)
+│   ├── README.md                 # K8s deploy, Cloudflare, dev testing (detailed)
 │   ├── base/                     # Namespace (Istio ambient) + ResourceQuota
 │   ├── argocd/
-│   │   └── application.yaml      # Optional GitOps root app (apply once)
-│   ├── mesh/
-│   │   ├── waypoint.yaml         # Istio Waypoint on master (Gateway API)
-│   │   └── httproute.yaml        # L7 routing + LEAST_REQUEST to llama-cpp
-│   ├── gateway/
-│   │   ├── cloudflared-deploy.yaml
-│   │   ├── litellm-config.yaml
-│   │   ├── litellm-deploy.yaml
-│   │   └── redis-deploy.yaml
-│   ├── inference/
-│   │   ├── llama-cpp-deploy.yaml # 2 replicas on AVX2 workers
-│   │   └── service.yaml
-│   ├── observability/
-│   │   ├── prometheus.yaml
-│   │   └── grafana.yaml
-│   ├── webui/
-│   │   └── chat-ui-deploy.yaml   # FastAPI chat UI proxy
-│   └── smoke-test/
-│       └── llama-cpp-worker.yaml # Single-worker validation (optional)
+│   │   └── application.yaml.example  # Reference; live app rendered by Ansible (registry not in Git)
+│   ├── mesh/                     # Istio Waypoint + HTTPRoute
+│   ├── gateway/                  # Redis, LiteLLM, cloudflared (+ secret templates)
+│   ├── inference/                # llama-cpp (2 replicas on AVX2 workers)
+│   ├── observability/            # Prometheus, Grafana, dashboard ConfigMap
+│   ├── webui/                    # chat-ui Deployment
+│   └── smoke-test/               # Single-worker validation (optional)
+├── observability/                # Prometheus/Grafana config for Docker Compose
+├── chat-ui/                      # FastAPI proxy + streaming frontend (see chat-ui/README.md)
+├── models/                       # GGUF weights (gitignored — place locally for deploy)
 ├── docker-compose.yml            # Local dev stack (no cluster required)
 ├── litellm_config.yaml           # LiteLLM config for Docker Compose
-├── chat-ui/                      # Streaming chat UI (FastAPI + static frontend)
+├── .env.example                  # Copy to .env for docker compose / tunnel token
 └── README.md
 
 ```
@@ -140,22 +145,22 @@ While this architecture leverages enterprise-grade deployment, container orchest
 
 What is **built and running** on the homelab cluster today:
 
-| Layer                     | Status | Notes                                                                  |
-| ------------------------- | ------ | ---------------------------------------------------------------------- |
-| Proxmox VMs (Terraform)   | ✅     | 1 master + 2 workers on `192.168.100.0/24`                             |
-| K3s cluster (Ansible)     | ✅     | v1.35.x, nodes labeled `cpu-feature=avx2\|base`                        |
-| LLM stack (ArgoCD GitOps) | ✅     | LiteLLM, Redis, llama-cpp ×2, Prometheus, Grafana — synced from `k8s/` |
-| Istio Ambient mesh        | ✅     | ztunnel + Waypoint L7 routing to inference pods                        |
-| Docker Compose local dev  | ✅     | Same stack for laptop testing without a cluster                        |
-| Chat UI (Edge LLM Demo)   | ✅     | Portfolio demo at `:8000` — key kept server-side, not production chat  |
-| Cloudflare Tunnel         | ⏳     | Manifests exist; disabled in `kustomization.yaml` until token is set   |
-| ArgoCD GitOps             | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`                 |
+| Layer                     | Status | Notes                                                                                    |
+| ------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| Proxmox VMs (Terraform)   | ✅     | 1 master + 2 workers on `192.168.100.0/24`                                               |
+| K3s cluster (Ansible)     | ✅     | Pin in `group_vars/all.yml` or latest stable; nodes labeled `cpu-feature=avx2\|base`     |
+| LLM stack (ArgoCD GitOps) | ✅     | LiteLLM, Redis, llama-cpp ×2, chat-ui, Prometheus, Grafana — synced from `k8s/`        |
+| Istio Ambient mesh        | ✅     | ztunnel + Waypoint L7 routing to inference pods                                          |
+| Docker Compose local dev  | ✅     | Same stack for laptop testing without a cluster (copy `.env.example` → `.env`)           |
+| Chat UI (Edge LLM Demo)   | ✅     | CI publishes to private registry; ArgoCD syncs tag from `k8s/kustomization.yaml` |
+| Cloudflare Tunnel         | ⏳     | `cloudflared` Deployment in Git; apply token with `scripts/apply-cloudflared-secret.sh`  |
+| ArgoCD GitOps             | ✅     | Standard deploy path via `./scripts/cluster.sh argocd`                                   |
 
 ### Cluster topology (default IPs)
 
 | Node            | IP               | Role          | Key workloads                                       |
 | --------------- | ---------------- | ------------- | --------------------------------------------------- |
-| `k3s-master`    | `192.168.100.71` | control-plane | LiteLLM, Redis, Grafana, Prometheus, Istio Waypoint |
+| `k3s-master`    | `192.168.100.71` | control-plane | LiteLLM, Redis, chat-ui, Grafana, Prometheus, Istio Waypoint, cloudflared |
 | `k3s-worker-01` | `192.168.100.72` | inference     | llama-cpp pod                                       |
 | `k3s-worker-02` | `192.168.100.73` | inference     | llama-cpp pod                                       |
 
@@ -189,10 +194,12 @@ cd ../ansible
 ansible k3s_cluster -m ping
 ansible-playbook bootstrap-k3s.yml
 ansible-playbook label-nodes.yml
-ansible-playbook deploy-llm-stack.yml
+ansible-playbook deploy-llm-stack.yml   # models, Gateway API, Istio, CNI fix, kubeconfig
 ```
 
-Or: `./scripts/cluster.sh deploy` from the repo root (requires `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` on your laptop).
+Or from the repo root: `./scripts/cluster.sh deploy` (requires `models/Llama-3.2-1B-Instruct-Q4_K_M.gguf` on your laptop, or set `llm_skip_model_copy: true` in `group_vars/all.yml` when models are already on workers).
+
+See [`ansible/README.md`](ansible/README.md) for playbook tags, pause/resume, and troubleshooting.
 
 ### Step 3: ArgoCD — sync the LLM gateway app
 
@@ -209,6 +216,19 @@ kubectl get nodes --show-labels | grep cpu-feature
 kubectl -n argocd get application llm-gateway
 kubectl -n llm-gateway get pods
 ```
+
+### Step 3b: Registry pull secret (Kubernetes, one-time)
+
+The cluster pulls `chat-ui` from your private registry (host not stored in Git). Apply pull credentials once:
+
+```bash
+# In repo root .env: REGISTRY, REGISTRY_USERNAME, REGISTRY_PASSWORD
+./scripts/apply-registry-secret.sh
+```
+
+Also copy `ansible/group_vars/secrets.yml.example` → `secrets.yml` and set `container_registry` before `./scripts/cluster.sh argocd`.
+
+CI pushes images on merge to `master` and commits the new tag to `k8s/kustomization.yaml`; ArgoCD rolls out the update. Manual push: `./scripts/deploy-chat-ui.sh`.
 
 ### Step 4: Copy model to inference workers
 
@@ -250,9 +270,39 @@ kubectl apply -k k8s
 kubectl -n llm-gateway get pods -w
 ```
 
-Cloudflare Tunnel: enable `gateway/cloudflared-deploy.yaml` in `kustomization.yaml`, then apply the token with `./scripts/apply-cloudflared-secret.sh` (see [`k8s/README.md`](k8s/README.md#cloudflare-tunnel-public-ingress)). **Never commit the tunnel token.**
+Cloudflare Tunnel: `cloudflared-deploy.yaml` is already in `kustomization.yaml`. Store the token in `.env` and run `./scripts/apply-cloudflared-secret.sh` (see [`k8s/README.md`](k8s/README.md#cloudflare-tunnel-public-ingress)). **Never commit the tunnel token.**
 
-**ArgoCD caveats:** `selfHeal: true` reverts manual edits to synced manifests — change secrets in Git. Use `./scripts/cluster.sh pause` / `resume` instead of scaling or re-applying by hand when ArgoCD is installed.
+**ArgoCD caveats:** `selfHeal: true` reverts manual edits to synced manifests — change secrets in Git (`litellm-secret.yaml`, `grafana-secret.yaml`). Use `./scripts/cluster.sh pause` / `resume` / `stop` / `start` instead of ad-hoc scaling when ArgoCD is installed.
+
+---
+
+## 🔄 CI/CD pipeline
+
+| Stage | Tool | What happens |
+| ----- | ---- | ------------ |
+| **CI** | GitHub Actions (`.github/workflows/ci.yaml`) | On every PR and push: `terraform fmt`/`validate`, `kubectl kustomize k8s`, `pytest` in `chat-ui/`, Docker build |
+| **Publish** | GitHub Actions (merge to `master` only) | Push `<REGISTRY>/chat-ui:<sha>` + `:latest`, commit tag bump to `k8s/kustomization.yaml` |
+| **CD** | ArgoCD | Syncs `k8s/` → cluster rollout |
+
+### GitHub repository secrets
+
+Configure in **Settings → Secrets and variables → Actions**:
+
+| Name | Type | Purpose |
+| ---- | ---- | ------- |
+| `REGISTRY` | Variable | Private registry hostname (not committed to Git) |
+| `REGISTRY_USERNAME` | Secret | Registry login |
+| `REGISTRY_PASSWORD` | Secret | Registry token or password |
+
+The publish job uses `[skip ci]` on the manifest commit to avoid an infinite loop.
+
+### Cluster one-time setup
+
+```bash
+./scripts/apply-registry-secret.sh   # imagePullSecret (REGISTRY* in .env)
+```
+
+Registry host for ArgoCD lives in `ansible/group_vars/secrets.yml` (gitignored). If the registry uses a private CA, configure K3s `registries.yaml` on each node (see [K3s private registry docs](https://docs.k3s.io/installation/private-registry)).
 
 ---
 
@@ -262,12 +312,14 @@ Two supported paths:
 
 | Environment        | When to use                                  | How to call the API                                                                          |
 | ------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Docker Compose** | Fastest local iteration, no cluster          | `docker compose up` → Chat UI at `http://localhost:8000` (or API at `http://localhost:4000`) |
-| **K3s cluster**    | Production-like path with Istio + scheduling | `kubectl port-forward` (see below)                                                           |
+| **Docker Compose** | Fastest local iteration, no cluster          | `cp .env.example .env && docker compose up` → Chat UI at `http://localhost:8000` (API at `:4000`) |
+| **K3s cluster**    | Production-like path with Istio + scheduling | `./scripts/cluster.sh port-forward` or `kubectl port-forward` (see below)                  |
 
 Services in Kubernetes are **ClusterIP** — they are not exposed on the master node IP (`192.168.100.71:4000`) by default. Istio load-balances **between llama-cpp worker pods** inside the cluster; it is not the external API entry point. **LiteLLM** is what clients call.
 
 ### One-time: kubeconfig on your laptop
+
+`deploy-llm-stack.yml` fetches kubeconfig to `ansible/kubeconfig/k3s.yaml`. Either use that path or copy from the master:
 
 ```bash
 mkdir -p ~/.kube
@@ -276,11 +328,14 @@ sed -i '' 's/127.0.0.1/192.168.100.71/' ~/.kube/config   # macOS
 kubectl get nodes
 ```
 
+`./scripts/cluster.sh status` uses `ansible/kubeconfig/k3s.yaml` when present.
+
 ### Dev API test (port-forward)
 
 ```bash
-# Terminal 1 — keep running
-kubectl -n llm-gateway port-forward svc/litellm 4000:4000
+# Terminal 1 — keep running (uses ansible/kubeconfig/k3s.yaml when present)
+./scripts/cluster.sh port-forward litellm
+# or: kubectl -n llm-gateway port-forward svc/litellm 4000:4000
 
 # Terminal 2
 curl -s http://localhost:4000/v1/chat/completions \
@@ -298,7 +353,8 @@ Grafana: `kubectl -n llm-gateway port-forward svc/grafana 3000:3000` → `http:/
 **Kubernetes:**
 
 ```bash
-kubectl -n llm-gateway port-forward svc/chat-ui 8000:8000
+./scripts/cluster.sh port-forward chat-ui
+# or: kubectl -n llm-gateway port-forward svc/chat-ui 8000:8000
 ```
 
 The chat UI proxies to LiteLLM internally — the API key is not exposed to the browser. See [`chat-ui/README.md`](chat-ui/README.md) for build and test instructions.
@@ -360,7 +416,7 @@ To demonstrate the resilience of this architecture, the following chaos tests ha
 
 1. **GitOps Drift Reconciliation:** Manually deleting an active `llama-server` pod or altering a ConfigMap directly via `kubectl` results in ArgoCD instantly detecting the drift and healing the cluster back to the Git-defined state in seconds.
 2. **Stateful Load Spike (Ambient Routing Test):** Sending a burst of 50 concurrent prompts correctly triggers the LiteLLM/Redis queue on the Xeon node. The Istio Waypoint proxy routes active prompts using advanced load balancing strategies ensuring an i5 node processing a massive context window is not overwhelmed with a second request until the internal continuous batching queue clears.
-3. **Endpoint Security & Perimeter Audit:** Requests issued without a valid Bearer token are dropped at the cluster perimeter by LiteLLM with an immediate `401 Unauthorized` response. Attempting to spam or flood the authenticated endpoint triggers Nginx rate limits, causing upstream packets to be dropped with an immediate `429 Too Many Requests` error before reaching backend compute.
+3. **Endpoint Security & Perimeter Audit:** Requests issued without a valid Bearer token are dropped at the cluster perimeter by LiteLLM with an immediate `401 Unauthorized` response. Attempting to spam or flood the authenticated endpoint triggers LiteLLM rate limits (`rpm` / `tpm` in `litellm_config.yaml`), returning `429 Too Many Requests` before traffic reaches inference workers.
 4. **Worker Node Failure:** Shutting down `k3s-worker-01` in Proxmox instantly triggers endpoint removal. The Istio mesh routes 100% of traffic to `k3s-worker-02` with zero 502 Bad Gateway errors exposed to the user.
 5. **Hardware Constraint Validation:** Temporarily removing the `nodeSelector` constraint results in the Kubernetes scheduler attempting to place a pod on the Xeon master, immediately resulting in a `CrashLoopBackOff (SIGILL)`, proving the necessity of the hardware-aware scheduling design.
 

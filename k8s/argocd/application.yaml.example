@@ -1,5 +1,9 @@
-# Root Application — applied once by ansible/deploy-argocd.yml (not part of k8s/kustomization.yaml).
-# repoURL must be reachable from the cluster; targetRevision must match your default branch.
+# Reference only — live Application is rendered by ansible/deploy-argocd.yml
+# (ansible/templates/argocd-application.yaml.j2) with container_registry from
+# ansible/group_vars/secrets.yml (gitignored).
+#
+# Do not kubectl apply this file directly unless you add the kustomize.images
+# override for your private registry host.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -22,4 +26,3 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=false
-      # ServerSideApply disabled: breaks diff on K8s 1.35 Deployment.status.terminatingReplicas (ArgoCD < 3.3.4).

@@ -56,7 +56,17 @@ argocd_app_exists() {
   kubectl get application "$ARGOCD_APP" -n "$ARGOCD_NS" >/dev/null 2>&1
 }
 
+load_env_file() {
+  if [[ -f "${ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${ROOT}/.env"
+    set +a
+  fi
+}
+
 run_ansible_playbook() {
+  load_env_file
   export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
   ansible-playbook -i "${ANSIBLE_DIR}/inventory.ini" "$@"
 }

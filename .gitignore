@@ -1,8 +1,10 @@
 # Local env overrides
 .env
 
-# Secrets with real credentials (use .example templates + scripts/apply-cloudflared-secret.sh)
+# Secrets with real credentials (use .example templates + scripts/apply-*-secret.sh)
 k8s/gateway/cloudflared-secret.yaml
+ansible/group_vars/secrets.yml
+ansible/.cache/
 
 # Python virtual environments
 chat-ui/.venv/

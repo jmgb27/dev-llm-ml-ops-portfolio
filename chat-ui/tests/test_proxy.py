@@ -111,7 +111,7 @@ async def test_chat_forwards_messages_and_injects_key() -> None:
     [
         (401, "Unauthorized"),
         (429, "Rate limit"),
-        (500, "Upstream error"),
+        (500, "upstream error"),
     ],
 )
 async def test_chat_maps_upstream_errors(

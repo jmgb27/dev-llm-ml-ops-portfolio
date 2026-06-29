@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: chat-ui
+
+jobs:
+  validate:
+    name: Validate & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Kustomize build
+        run: kubectl kustomize k8s > /dev/null
+
+      - name: Python unit tests (chat-ui)
+        working-directory: chat-ui
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest
+
+      - name: Docker build chat-ui
+        run: docker build --platform linux/amd64 -t chat-ui:ci ./chat-ui
+
+  publish:
+    name: Publish chat-ui image
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      REGISTRY: ${{ secrets.REGISTRY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require registry host
+        run: |
+          if [[ -z "${REGISTRY}" ]]; then
+            echo "Set repository variable REGISTRY (Settings → Secrets and variables → Actions → Variables)." >&2
+            exit 1
+          fi
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push
+        id: build
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          docker build --platform linux/amd64 \
+            -t "${IMAGE}:${SHORT_SHA}" \
+            -t "${IMAGE}:latest" \
+            ./chat-ui
+          docker push "${IMAGE}:${SHORT_SHA}"
+          docker push "${IMAGE}:latest"
+          echo "short_sha=${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bump image tag in kustomization
+        run: |
+          SHORT_SHA="${{ steps.build.outputs.short_sha }}"
+          FILE="k8s/kustomization.yaml"
+          if grep -q 'newTag:.*# ci:chat-ui' "${FILE}"; then
+            sed -i "s|newTag:.*# ci:chat-ui|newTag: \"${SHORT_SHA}\"  # ci:chat-ui|" "${FILE}"
+          else
+            echo "Expected images.newTag marker for chat-ui in ${FILE}" >&2
+            exit 1
+          fi
+          kubectl kustomize k8s > /dev/null
+
+      - name: Commit and push manifest update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/kustomization.yaml
+          if git diff --staged --quiet; then
+            echo "Image tag already up to date."
+            exit 0
+          fi
+          git commit -m "ci: bump chat-ui image to ${{ steps.build.outputs.short_sha }} [skip ci]"
+          git push

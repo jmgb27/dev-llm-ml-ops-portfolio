@@ -31,3 +31,7 @@ configMapGenerator:
 
 generatorOptions:
     disableNameSuffixHash: true
+
+images:
+    - name: chat-ui
+      newTag: bootstrap  # ci:chat-ui — updated by .github/workflows/ci.yaml on merge to master
