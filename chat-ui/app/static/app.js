@@ -12,7 +12,6 @@
     const inputEl = document.getElementById("message-input");
     const sendBtn = document.getElementById("send-btn");
     const newChatBtn = document.getElementById("new-chat");
-    const themeToggle = document.getElementById("theme-toggle");
     const modelBadge = document.getElementById("model-badge");
     const disclaimerEl = document.getElementById("disclaimer");
     const toastContainer = document.getElementById("toast-container");
@@ -24,15 +23,6 @@
         breaks: true,
         gfm: true,
     });
-
-    function getTheme() {
-        return localStorage.getItem("chat-theme") || "dark";
-    }
-
-    function setTheme(theme) {
-        document.documentElement.setAttribute("data-theme", theme);
-        localStorage.setItem("chat-theme", theme);
-    }
 
     function showToast(message, type = "error") {
         const toast = document.createElement("div");
@@ -265,10 +255,6 @@
         }
     }
 
-    themeToggle.addEventListener("click", () => {
-        setTheme(getTheme() === "dark" ? "light" : "dark");
-    });
-
     newChatBtn.addEventListener("click", resetChat);
     formEl.addEventListener("submit", handleSubmit);
 
@@ -280,7 +266,6 @@
         }
     });
 
-    setTheme(getTheme());
     renderEmptyState();
     loadConfig();
     inputEl.focus();
