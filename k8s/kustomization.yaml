@@ -34,4 +34,4 @@ generatorOptions:
 
 images:
     - name: chat-ui
-      newTag: "b5133af"  # ci:chat-ui — updated by .github/workflows/ci.yaml on merge to master
+      newTag: "8e2c7eb"  # ci:chat-ui — updated by .github/workflows/ci.yaml on merge to master
