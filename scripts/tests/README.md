@@ -1,6 +1,6 @@
 # LLM Gateway — test suite
 
-Executable tests for the port-forwarded LiteLLM API and optional Kubernetes chaos scenarios. Maps to the [enterprise failure scenarios](../../README.md#simulated-enterprise-failure-scenarios) in the root README.
+Executable tests for the port-forwarded LiteLLM API and optional Kubernetes chaos scenarios. See the [root README](../../README.md#documentation-map) for how this fits the overall stack.
 
 ## Prerequisites
 
