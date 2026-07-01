@@ -17,6 +17,10 @@ spec:
     repoURL: https://github.com/jmgb27/devops_llmops_mlops_portfolio.git
     targetRevision: master
     path: k8s
+    kustomize:
+      images:
+        # :* keeps newTag from k8s/kustomization.yaml (CI-bumped sha)
+        - chat-ui=your-registry.example.com/chat-ui:*
   destination:
     server: https://kubernetes.default.svc
     namespace: llm-gateway

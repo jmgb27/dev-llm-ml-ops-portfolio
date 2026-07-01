@@ -14,7 +14,8 @@ spec:
     path: k8s
     kustomize:
       images:
-        - chat-ui={{ container_registry }}/chat-ui
+        # :* preserves newTag from k8s/kustomization.yaml (CI-bumped sha)
+        - chat-ui={{ container_registry }}/chat-ui:*
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ llm_gateway_namespace }}

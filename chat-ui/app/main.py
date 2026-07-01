@@ -16,7 +16,9 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/")
+LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000").rstrip(
+    "/"
+)
 LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "sk-1234")
 LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "llama3")
 UPSTREAM_TIMEOUT = float(os.environ.get("UPSTREAM_TIMEOUT", "180"))
@@ -101,7 +103,9 @@ async def chat(request: ChatRequest) -> StreamingResponse:
                         yield _sse_error("Unauthorized: invalid upstream API key.")
                         return
                     if response.status_code == 429:
-                        yield _sse_error("Rate limit exceeded. Please wait and try again.")
+                        yield _sse_error(
+                            "Rate limit exceeded. Please wait and try again."
+                        )
                         return
                     if response.status_code >= 400:
                         body = await response.aread()

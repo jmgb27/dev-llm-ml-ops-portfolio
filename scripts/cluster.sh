@@ -124,6 +124,17 @@ cmd_status() {
   echo
   echo "=== ArgoCD ==="
   kubectl get application -n "$ARGOCD_NS" 2>/dev/null || echo "(ArgoCD not installed)"
+  if argocd_app_exists; then
+    local kimg reg deploy_img
+    kimg="$(kubectl -n "$ARGOCD_NS" get application "$ARGOCD_APP" -o jsonpath='{.spec.source.kustomize.images[0]}' 2>/dev/null || true)"
+    deploy_img="$(kubectl -n "$NS" get deploy chat-ui -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+    echo "chat-ui image: ${deploy_img:-n/a}"
+    if [[ -n "$deploy_img" && "$deploy_img" != *"/"* ]]; then
+      echo "WARN: chat-ui has no registry prefix — re-run: $0 argocd (needs kustomize.images override)" >&2
+    elif [[ -n "$kimg" && "$kimg" != *":*" ]]; then
+      echo "WARN: ArgoCD image override missing :* — tag from CI may be dropped; re-run: $0 argocd" >&2
+    fi
+  fi
   echo
   echo "=== Istio ==="
   kubectl get pods -n istio-system --no-headers 2>/dev/null | awk '{print $2, $3}' | sort | uniq -c || true
