@@ -13,9 +13,9 @@
     const sendBtn = document.getElementById("send-btn");
     const newChatBtn = document.getElementById("new-chat");
     const themeToggle = document.getElementById("theme-toggle");
-  const modelBadge = document.getElementById("model-badge");
-  const disclaimerEl = document.getElementById("disclaimer");
-  const toastContainer = document.getElementById("toast-container");
+    const modelBadge = document.getElementById("model-badge");
+    const disclaimerEl = document.getElementById("disclaimer");
+    const toastContainer = document.getElementById("toast-container");
 
     let messages = [];
     let isStreaming = false;
@@ -51,15 +51,14 @@
         chatEl.scrollTop = chatEl.scrollHeight;
     }
 
-  function renderEmptyState() {
-    chatEl.innerHTML = `
+    function renderEmptyState() {
+        chatEl.innerHTML = `
       <div class="chat__empty">
         <h2>Try the demo</h2>
         <p>Ask anything — responses stream from Llama&nbsp;3.2&nbsp;1B via the LiteLLM gateway on the edge cluster.</p>
-        <p class="chat__empty-note">Long threads are auto-summarized when context fills up. This is a portfolio demo: the 1B model may be inaccurate at times.</p>
       </div>
     `;
-  }
+    }
 
     function createMessageElement(role, content = "", options = {}) {
         const { typing = false } = options;
@@ -246,25 +245,25 @@
         inputEl.style.height = `${Math.min(inputEl.scrollHeight, 160)}px`;
     }
 
-  async function loadConfig() {
-    try {
-      const response = await fetch("/api/config");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.model) {
-          modelBadge.textContent = data.model;
+    async function loadConfig() {
+        try {
+            const response = await fetch("/api/config");
+            if (response.ok) {
+                const data = await response.json();
+                if (data.model) {
+                    modelBadge.textContent = data.model;
+                }
+                if (data.max_context_tokens && disclaimerEl) {
+                    const contextK = Math.round(data.max_context_tokens / 1024);
+                    disclaimerEl.innerHTML =
+                        `<strong>Demo only.</strong> Llama&nbsp;3.2&nbsp;1B on edge homelab hardware — ` +
+                        `${contextK}K context, limited RAM/CPU. Small models can be inaccurate; not for production use.`;
+                }
+            }
+        } catch {
+            // Non-fatal — default disclaimer text is fine.
         }
-        if (data.max_context_tokens && disclaimerEl) {
-          const contextK = Math.round(data.max_context_tokens / 1024);
-          disclaimerEl.innerHTML =
-            `<strong>Demo only.</strong> Llama&nbsp;3.2&nbsp;1B on edge homelab hardware — ` +
-            `${contextK}K context, limited RAM/CPU. Small models can be inaccurate; not for production use.`;
-        }
-      }
-    } catch {
-      // Non-fatal — default disclaimer text is fine.
     }
-  }
 
     themeToggle.addEventListener("click", () => {
         setTheme(getTheme() === "dark" ? "light" : "dark");
